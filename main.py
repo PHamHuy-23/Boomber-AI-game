@@ -1,7 +1,7 @@
 """Entry point for running BombermanAI agent benchmarks."""
 import sys
 from agents.random_agent import RandomAgent
-from benchmark.benchmark import benchmark, run_game
+from benchmarks.benchmark import benchmark, run_game
 
 def main():
     """Main execution flow."""
