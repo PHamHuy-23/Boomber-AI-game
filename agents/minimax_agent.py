@@ -112,8 +112,14 @@ def parse_state(state: dict) -> dict:
                 height = env.map.height
             else:
                 walls = set(state.get("walls", []))
+                bricks = set(state.get("bricks", []))
+                width = state.get("width", 15)
+                height = state.get("height", 13)
         except Exception:
             walls = set(state.get("walls", []))
+            bricks = set(state.get("bricks", []))
+            width = state.get("width", 15)
+            height = state.get("height", 13)
             
     # Default player position if not found
     if player_pos is None:
@@ -268,11 +274,20 @@ def check_escape_path(start_pos: Tuple[int, int], walls: Set[Tuple[int, int]], b
                 
     return False
 
-def bfs_shortest_path_distance(start: Tuple[int, int], targets: Set[Tuple[int, int]], walls: Set[Tuple[int, int]], bricks: Set[Tuple[int, int]], bombs: List[Tuple[int, int, int]] = None, width: int = 15, height: int = 13) -> float:
-    if not targets:
-        return float('inf')
-    if start in targets:
-        return 0.0
+def bfs_shortest_path_distance_multi(start: Tuple[int, int], item_targets: Set[Tuple[int, int]], brick_targets: Set[Tuple[int, int]], enemy_targets: Set[Tuple[int, int]], walls: Set[Tuple[int, int]], bricks: Set[Tuple[int, int]], bombs: List[Tuple[int, int, int]] = None, width: int = 15, height: int = 13) -> Tuple[float, float, float]:
+    min_item_dist = float('inf')
+    min_brick_dist = float('inf')
+    min_enemy_dist = float('inf')
+    
+    if start in item_targets:
+        min_item_dist = 0.0
+    if start in brick_targets:
+        min_brick_dist = 0.0
+    if start in enemy_targets:
+        min_enemy_dist = 0.0
+        
+    if min_item_dist == 0.0 and min_brick_dist == 0.0 and min_enemy_dist == 0.0:
+        return 0.0, 0.0, 0.0
         
     queue = [(start[0], start[1], 0)]
     visited = {start}
@@ -281,16 +296,26 @@ def bfs_shortest_path_distance(start: Tuple[int, int], targets: Set[Tuple[int, i
     while queue:
         cx, cy, dist = queue.pop(0)
         
+        # Stop BFS early if all three target categories have been found
+        if min_item_dist != float('inf') and min_brick_dist != float('inf') and min_enemy_dist != float('inf'):
+            break
+            
         for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
             nx, ny = cx + dx, cy + dy
             if 0 <= nx < width and 0 <= ny < height:
-                if (nx, ny) in targets:
-                    return float(dist + 1)
+                if (nx, ny) in item_targets and min_item_dist == float('inf'):
+                    min_item_dist = float(dist + 1)
+                if (nx, ny) in brick_targets and min_brick_dist == float('inf'):
+                    min_brick_dist = float(dist + 1)
+                if (nx, ny) in enemy_targets and min_enemy_dist == float('inf'):
+                    min_enemy_dist = float(dist + 1)
+                    
                 if (nx, ny) not in walls and (nx, ny) not in bricks and (nx, ny) not in bomb_positions:
                     if (nx, ny) not in visited:
                         visited.add((nx, ny))
                         queue.append((nx, ny, dist + 1))
-    return float('inf')
+                        
+    return min_item_dist, min_brick_dist, min_enemy_dist
 
 def heuristic_evaluate(pos: Tuple[int, int], state_info: dict, placed_bomb: Tuple[int, int, int] = None) -> float:
     px, py = pos
@@ -336,45 +361,49 @@ def heuristic_evaluate(pos: Tuple[int, int], state_info: dict, placed_bomb: Tupl
     elif min_enemy_dist == 3:
         score -= 30.0
         
-    # 5. Item proximity bonus
-    if state_info["items"]:
-        item_targets = set(state_info["items"].keys())
-        dist = bfs_shortest_path_distance(pos, item_targets, state_info["walls"], state_info["bricks"], bombs_to_check, width, height)
-        if dist != float('inf'):
-            score += 1500.0 / (dist + 1)
-            
-    # 6. Brick proximity bonus
+    # Build target sets for item, brick, and enemy proximity search
+    item_targets = set(state_info["items"].keys()) if state_info["items"] else set()
+    
+    brick_targets = set()
     if state_info["bricks"]:
-        brick_targets = set()
         for bx, by in state_info["bricks"]:
             for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                 tx, ty = bx + dx, by + dy
                 if 0 <= tx < width and 0 <= ty < height and (tx, ty) not in state_info["walls"] and (tx, ty) not in state_info["bricks"]:
                     brick_targets.add((tx, ty))
                     
-        dist = bfs_shortest_path_distance(pos, brick_targets, state_info["walls"], state_info["bricks"], bombs_to_check, width, height)
-        if dist != float('inf'):
-            score += 300.0 / (dist + 1)
-            
-    # 7. Enemy proximity / hunt bonus if no bricks are left
+    enemy_targets = set()
     if state_info["enemies"]:
-        enemy_targets = set()
         for ex, ey in state_info["enemies"]:
             for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                 tx, ty = ex + dx, ey + dy
                 if 0 <= tx < width and 0 <= ty < height and (tx, ty) not in state_info["walls"] and (tx, ty) not in state_info["bricks"]:
                     enemy_targets.add((tx, ty))
                     
-        dist = bfs_shortest_path_distance(pos, enemy_targets, state_info["walls"], state_info["bricks"], bombs_to_check, width, height)
-        if dist != float('inf'):
-            if not state_info["bricks"]:
-                score += 800.0 / (dist + 1)
+    # Execute a single multi-target BFS to find closest target in all categories
+    dist_item, dist_brick, dist_enemy = bfs_shortest_path_distance_multi(
+        pos, item_targets, brick_targets, enemy_targets,
+        state_info["walls"], state_info["bricks"], bombs_to_check, width, height
+    )
+    
+    # 5. Item proximity bonus
+    if dist_item != float('inf'):
+        score += 1500.0 / (dist_item + 1)
+        
+    # 6. Brick proximity bonus
+    if dist_brick != float('inf'):
+        score += 300.0 / (dist_brick + 1)
+        
+    # 7. Enemy proximity / hunt bonus
+    if dist_enemy != float('inf'):
+        if not state_info["bricks"]:
+            score += 800.0 / (dist_enemy + 1)
+        else:
+            if state_info["ammo"] > 0:
+                score += 100.0 / (dist_enemy + 1)
             else:
-                if state_info["ammo"] > 0:
-                    score += 100.0 / (dist + 1)
-                else:
-                    score -= 50.0 / (dist + 1)
-                    
+                score -= 50.0 / (dist_enemy + 1)
+                
     return score
 
 def simulate_state_forward(state_info: dict, player_action: str, step: int = 1) -> dict:
