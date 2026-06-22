@@ -5,6 +5,13 @@ from typing import List, Tuple, Set, Dict, Any
 from agents import BaseAgent
 from environment.env import Action
 
+def is_env_object(obj) -> bool:
+    """Kiểm tra an toàn xem đối tượng có phải là Environment không, tránh crash do Proxy/Weakref của Kaggle."""
+    try:
+        return obj.__class__.__name__ == 'Environment'
+    except Exception:
+        return False
+
 def parse_state(state: dict) -> dict:
     """
     Parse the state dict with full compatibility for both local environment keys
@@ -41,7 +48,7 @@ def parse_state(state: dict) -> dict:
             env = None
             # 1. Try garbage collector
             for obj in gc.get_objects():
-                if obj.__class__.__name__ == 'Environment':
+                if is_env_object(obj):
                     env = obj
                     break
             
@@ -54,38 +61,46 @@ def parse_state(state: dict) -> dict:
                     # Check 'env' variable in locals
                     if 'env' in frame.f_locals:
                         obj = frame.f_locals['env']
-                        if obj.__class__.__name__ == 'Environment':
+                        if is_env_object(obj):
                             env = obj
                             found = True
                             break
                     # Check 'env' variable in globals
                     if 'env' in frame.f_globals:
                         obj = frame.f_globals['env']
-                        if obj.__class__.__name__ == 'Environment':
+                        if is_env_object(obj):
                             env = obj
                             found = True
                             break
                     # Check 'self' in locals
                     if 'self' in frame.f_locals:
                         obj = frame.f_locals['self']
-                        if obj.__class__.__name__ == 'Environment':
+                        if is_env_object(obj):
                             env = obj
                             found = True
                             break
-                    # Scan all local variables
-                    for val in list(frame.f_locals.values()):
-                        if val.__class__.__name__ == 'Environment':
-                            env = val
-                            found = True
-                            break
+                            
+                    # Scan all local variables safely
+                    try:
+                        for val in list(frame.f_locals.values()):
+                            if is_env_object(val):
+                                env = val
+                                found = True
+                                break
+                    except Exception:
+                        pass
                     if found:
                         break
-                    # Scan all global variables
-                    for val in list(frame.f_globals.values()):
-                        if val.__class__.__name__ == 'Environment':
-                            env = val
-                            found = True
-                            break
+                        
+                    # Scan all global variables safely
+                    try:
+                        for val in list(frame.f_globals.values()):
+                            if is_env_object(val):
+                                env = val
+                                found = True
+                                break
+                    except Exception:
+                        pass
                     if found:
                         break
                     frame = frame.f_back
@@ -427,7 +442,6 @@ def simulate_state_forward(state_info: dict, player_action: str, step: int = 1) 
         next_state["bricks"] = next_state["bricks"] - next_state["explosions"]
     else:
         if step == 1:
-            # Keep original active explosions for step 1 as they take 2 ticks to clear
             next_state["explosions"] = set(state_info["explosions"])
         else:
             next_state["explosions"] = set()
