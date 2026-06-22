@@ -1,12 +1,12 @@
 """Entry point for running BombermanAI agent benchmarks."""
 import sys
-from agents.random_agent import RandomAgent
+from agents.minimax_agent import MinimaxAgent
 from benchmarks.benchmark import benchmark, run_game
 
 def main():
     """Main execution flow."""
-    print("Initializing RandomAgent...")
-    agent = RandomAgent(seed=42)
+    print("Initializing MinimaxAgent...")
+    agent = MinimaxAgent(depth=2)
 
     # Display a sample game rendering so the user can see the environment physics in action
     print("\nRunning a sample game with ASCII rendering...")
