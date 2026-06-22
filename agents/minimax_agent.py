@@ -347,7 +347,7 @@ def heuristic_evaluate(pos: Tuple[int, int], state_info: dict, placed_bomb: Tupl
         timer = hazard_zones[pos]
         score -= (5.0 - timer) * 150.0
         
-    # 4. Enemy proximity penalty
+    # 4. Enemy proximity penalty/bonus: encourage hunting when armed, flee when unarmed
     min_enemy_dist = float('inf')
     for ex, ey in state_info["enemies"]:
         dist = abs(px - ex) + abs(py - ey)
@@ -355,11 +355,20 @@ def heuristic_evaluate(pos: Tuple[int, int], state_info: dict, placed_bomb: Tupl
             min_enemy_dist = dist
             
     if min_enemy_dist == 1:
-        score -= 3000.0
+        if state_info["ammo"] > 0:
+            score += 2000.0  # Encourage getting adjacent to place a bomb
+        else:
+            score -= 3000.0  # Flee if we have no ammo
     elif min_enemy_dist == 2:
-        score -= 300.0
+        if state_info["ammo"] > 0:
+            score += 1000.0
+        else:
+            score -= 300.0
     elif min_enemy_dist == 3:
-        score -= 30.0
+        if state_info["ammo"] > 0:
+            score += 500.0
+        else:
+            score -= 30.0
         
     # Build target sets for item, brick, and enemy proximity search
     item_targets = set(state_info["items"].keys()) if state_info["items"] else set()
