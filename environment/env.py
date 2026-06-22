@@ -20,6 +20,37 @@ class Action(Enum):
     BOMB = "BOMB"
     WAIT = "WAIT"
 
+def get_spiral_coords(width: int, height: int) -> List[Tuple[int, int]]:
+    """Generate coordinates in a clockwise spiral from top-left to center (excluding border)."""
+    left, right = 1, width - 2
+    top, bottom = 1, height - 2
+    coords = []
+    
+    while left <= right and top <= bottom:
+        # Top row
+        for x in range(left, right + 1):
+            coords.append((x, top))
+        top += 1
+        
+        # Right column
+        for y in range(top, bottom + 1):
+            coords.append((right, y))
+        right -= 1
+        
+        # Bottom row
+        if top <= bottom:
+            for x in range(right, left - 1, -1):
+                coords.append((x, bottom))
+            bottom -= 1
+            
+        # Left column
+        if left <= right:
+            for y in range(bottom, top - 1, -1):
+                coords.append((left, y))
+            left += 1
+            
+    return coords
+
 class Environment:
     """The Bomberman environment matching gym-like interface."""
 
@@ -62,8 +93,12 @@ class Environment:
             self.enemies.clear()
             self.players.clear()
             for i, (px, py) in enumerate(self.map.spawns):
-                self.players.append(Player(px, py, player_id=f"player_{i+1}"))
+                player = Player(px, py, player_id=f"player_{i+1}")
+                player.lives = 1  # 1 life for intense sudden-death matchups!
+                self.players.append(player)
             self.player = self.players[0] if self.players else None
+            self.sudden_death_coords = get_spiral_coords(self.map.width, self.map.height)
+            self.sudden_death_idx = 0
             return self.get_state_for_player(0)
         else:
             # Spawn player in the first spawn point (top-left)
@@ -146,8 +181,8 @@ class Environment:
             alive_count = sum(1 for p in self.players if p.is_alive)
             if alive_count <= 1:
                 return True
-            if self.current_step >= self.max_steps:
-                return True
+            # In multi-agent mode with Sudden Death, we do not time out if there are still active competitors.
+            # They will eventually be crushed by the spiral walls anyway, ensuring final resolution.
             return False
 
         if self.player is not None and not self.player.is_alive:
@@ -434,6 +469,34 @@ class Environment:
 
         # 2. Update Bomb / Explosion timers
         self.current_step += 1
+
+        # Sudden Death Wall Placement (starting at step 150)
+        # Places exactly one new wall block every step to shrink the board
+        if self.multi_agent and self.current_step >= 150:
+            placed = False
+            while not placed and hasattr(self, 'sudden_death_coords') and self.sudden_death_idx < len(self.sudden_death_coords):
+                sx, sy = self.sudden_death_coords[self.sudden_death_idx]
+                self.sudden_death_idx += 1
+                
+                if (sx, sy) not in self.map.walls:
+                    # Place the wall block
+                    self.map.walls.add((sx, sy))
+                    placed = True
+                    
+                    # Remove brick if exists
+                    if (sx, sy) in self.map.bricks:
+                        self.map.bricks.remove((sx, sy))
+                        
+                    # Remove item if exists
+                    if (sx, sy) in self.items:
+                        del self.items[(sx, sy)]
+                        
+                    # Crush player if standing on the falling block
+                    for player in self.players:
+                        if player.is_alive and player.x == sx and player.y == sy:
+                            player.lives = 0
+                            player.is_alive = False
+                            player_damaged_this_turn[player.id] = True
 
         # Tick explosions and remove expired ones
         self.explosions = [exp for exp in self.explosions if not exp.tick()]

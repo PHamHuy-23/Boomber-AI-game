@@ -6,7 +6,7 @@ class GameConfig:
     MAP_HEIGHT: int = 13
 
     # Agent configuration
-    INITIAL_LIVES: int = 3
+    INITIAL_LIVES: int = 1
     INITIAL_MAX_BOMBS: int = 1
     INITIAL_BLAST_RADIUS: int = 2
 
