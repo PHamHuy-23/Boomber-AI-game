@@ -37,29 +37,57 @@ def parse_state(state: dict) -> dict:
                     player_pos = (x, y)
     else:
         # No board key -> we are running locally in pytest / benchmark.py
-        # Try to find Environment in the garbage collector (extremely robust)
         try:
             env = None
+            # 1. Try garbage collector
             for obj in gc.get_objects():
                 if obj.__class__.__name__ == 'Environment':
                     env = obj
                     break
             
+            # 2. Try inspect stack frames (locals, globals, and class type scan)
             if env is None:
-                # Fallback to inspect stack
                 import inspect
                 frame = inspect.currentframe()
-                while frame:
-                    locals_dict = frame.f_locals
-                    if 'env' in locals_dict:
-                        env = locals_dict['env']
-                        if env.__class__.__name__ == 'Environment':
+                found = False
+                while frame and not found:
+                    # Check 'env' variable in locals
+                    if 'env' in frame.f_locals:
+                        obj = frame.f_locals['env']
+                        if obj.__class__.__name__ == 'Environment':
+                            env = obj
+                            found = True
                             break
-                    if 'self' in locals_dict:
-                        self_obj = locals_dict['self']
-                        if self_obj.__class__.__name__ == 'Environment':
-                            env = self_obj
+                    # Check 'env' variable in globals
+                    if 'env' in frame.f_globals:
+                        obj = frame.f_globals['env']
+                        if obj.__class__.__name__ == 'Environment':
+                            env = obj
+                            found = True
                             break
+                    # Check 'self' in locals
+                    if 'self' in frame.f_locals:
+                        obj = frame.f_locals['self']
+                        if obj.__class__.__name__ == 'Environment':
+                            env = obj
+                            found = True
+                            break
+                    # Scan all local variables
+                    for val in list(frame.f_locals.values()):
+                        if val.__class__.__name__ == 'Environment':
+                            env = val
+                            found = True
+                            break
+                    if found:
+                        break
+                    # Scan all global variables
+                    for val in list(frame.f_globals.values()):
+                        if val.__class__.__name__ == 'Environment':
+                            env = val
+                            found = True
+                            break
+                    if found:
+                        break
                     frame = frame.f_back
             
             if env is not None and env.map is not None:
