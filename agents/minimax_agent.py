@@ -5,24 +5,24 @@ from typing import List, Tuple, Set, Dict, Any
 from agents import BaseAgent
 from environment.env import Action
 
+# Kiểm tra an toàn xem đối tượng có phải là Environment không
+# Tránh crash do Proxy/Weakref của Kaggle
 def is_env_object(obj) -> bool:
-    """Kiểm tra an toàn xem đối tượng có phải là Environment không, tránh crash do Proxy/Weakref của Kaggle."""
     try:
         return obj.__class__.__name__ == 'Environment'
     except Exception:
         return False
 
+# Chuyển đổi trạng thái từ dạng dictionary sang các tập dữ liệu thuần tiện xử lý
 def parse_state(state: dict) -> dict:
-    """
-    Parse the state dict with full compatibility for both local environment keys
-    and the standard Kaggle/WandB representation.
-    """
-    # 1. Player Position
+    # 1. Lấy vị trí người chơi hiện tại
     player_pos = state.get("player_pos") or state.get("self_position")
     
-    # 2. Map dimensions (default to standard 15x13)
+    # 2. Kích thước bản đồ mặc định
     width, height = 15, 13
     board = state.get("board") or state.get("grid")
+    
+    # Nếu bản đồ dạng lưới (Kaggle) tồn tại, phân tích trực tiếp
     if board is not None:
         height = len(board)
         width = len(board[0]) if height > 0 else 0
@@ -30,49 +30,46 @@ def parse_state(state: dict) -> dict:
     walls = set()
     bricks = set()
     
-    # If board or grid is present, parse it directly
+    # Duyệt lưới bản đồ để phân tách tường cứng (1) và gạch vỡ (2)
     if board is not None:
-        # standard: 0: empty, 1: wall, 2: brick, 3: bomb, 4: enemy
         for y in range(height):
             for x in range(width):
                 val = board[y][x]
                 if val == 1:
-                    walls.add((x, y))
+                    walls.add((x, y))  # Tường không phá được
                 elif val == 2:
-                    bricks.add((x, y))
+                    bricks.add((x, y))  # Gạch phá được bằng bom
                 if player_pos is None and val == 5:
-                    player_pos = (x, y)
+                    player_pos = (x, y) # Vị trí tự nhận diện nếu thiếu
     else:
-        # No board key -> we are running locally in pytest / benchmark.py
+        # Nếu không có lưới bản đồ trực tiếp (chạy cục bộ/benchmark)
+        # Sử dụng GC và inspect để quét đối tượng Environment trong bộ nhớ
         try:
             env = None
-            # 1. Try garbage collector
+            # 1. Quét từ Garbage Collector
             for obj in gc.get_objects():
                 if is_env_object(obj):
                     env = obj
                     break
             
-            # 2. Try inspect stack frames (locals, globals, and class type scan)
+            # 2. Quét từ Stack Frame của Python nếu GC chưa ra
             if env is None:
                 import inspect
                 frame = inspect.currentframe()
                 found = False
                 while frame and not found:
-                    # Check 'env' variable in locals
                     if 'env' in frame.f_locals:
                         obj = frame.f_locals['env']
                         if is_env_object(obj):
                             env = obj
                             found = True
                             break
-                    # Check 'env' variable in globals
                     if 'env' in frame.f_globals:
                         obj = frame.f_globals['env']
                         if is_env_object(obj):
                             env = obj
                             found = True
                             break
-                    # Check 'self' in locals
                     if 'self' in frame.f_locals:
                         obj = frame.f_locals['self']
                         if is_env_object(obj):
@@ -80,7 +77,6 @@ def parse_state(state: dict) -> dict:
                             found = True
                             break
                             
-                    # Scan all local variables safely
                     try:
                         for val in list(frame.f_locals.values()):
                             if is_env_object(val):
@@ -92,7 +88,6 @@ def parse_state(state: dict) -> dict:
                     if found:
                         break
                         
-                    # Scan all global variables safely
                     try:
                         for val in list(frame.f_globals.values()):
                             if is_env_object(val):
@@ -105,27 +100,29 @@ def parse_state(state: dict) -> dict:
                         break
                     frame = frame.f_back
             
+            # Nếu tìm thấy Environment, trích xuất thông tin bản đồ thực tế
             if env is not None and env.map is not None:
                 walls = set(env.map.walls)
                 bricks = set(env.map.bricks)
                 width = env.map.width
                 height = env.map.height
             else:
+                # Fallback đọc từ dictionary trạng thái
                 walls = set(state.get("walls", []))
                 bricks = set(state.get("bricks", []))
                 width = state.get("width", 15)
                 height = state.get("height", 13)
         except Exception:
+            # Fallback nếu gặp lỗi bảo mật/cấm quét bộ nhớ
             walls = set(state.get("walls", []))
             bricks = set(state.get("bricks", []))
             width = state.get("width", 15)
             height = state.get("height", 13)
             
-    # Default player position if not found
     if player_pos is None:
         player_pos = (1, 1)
         
-    # 3. Enemies
+    # 3. Lấy danh sách vị trí của đối thủ
     enemies = []
     raw_enemies = state.get("enemies") or state.get("enemy_positions")
     if raw_enemies:
@@ -137,7 +134,7 @@ def parse_state(state: dict) -> dict:
             else:
                 enemies.append((e.x, e.y))
                 
-    # 4. Bombs (list of tuples: (x, y, timer))
+    # 4. Lấy danh sách bom đang hoạt động (tọa độ x, y, thời gian nổ)
     bombs = []
     raw_bombs = state.get("bombs") or state.get("bomb_positions")
     if raw_bombs:
@@ -152,7 +149,7 @@ def parse_state(state: dict) -> dict:
             else:
                 bombs.append((b.x, b.y, b.timer))
                 
-    # 5. Explosions
+    # 5. Lấy danh sách các ô đang có tia lửa nổ hoạt động
     explosions = set()
     raw_explosions = state.get("explosions", [])
     for exp in raw_explosions:
@@ -161,7 +158,7 @@ def parse_state(state: dict) -> dict:
         elif isinstance(exp, dict):
             explosions.add((exp.get('x'), exp.get('y')))
             
-    # 6. Items
+    # 6. Lấy danh sách vật phẩm (Power-ups) trên bản đồ
     items = {}
     raw_items = state.get("items", {})
     if isinstance(raw_items, dict):
@@ -169,7 +166,7 @@ def parse_state(state: dict) -> dict:
             if isinstance(k, (list, tuple)):
                 items[k] = v
                 
-    # 7. Ammo and Blast Radius
+    # 7. Số lượng bom dự trữ và bán kính nổ của Agent
     ammo = state.get("ammo", 1)
     blast_radius = state.get("blast_radius", 2)
     
@@ -187,6 +184,7 @@ def parse_state(state: dict) -> dict:
         "height": height
     }
 
+# Tính toán phản ứng dây chuyền của bom (khi bom nổ kích hoạt bom khác)
 def resolve_bomb_chain_reactions(bombs: List[Tuple[int, int, int]], walls: Set[Tuple[int, int]], bricks: Set[Tuple[int, int]], blast_radius: int, width: int = 15, height: int = 13) -> List[Tuple[int, int, int]]:
     bomb_timers = {(bx, by): timer for bx, by, timer in bombs}
     
@@ -202,6 +200,7 @@ def resolve_bomb_chain_reactions(bombs: List[Tuple[int, int, int]], walls: Set[T
                         break
                     if (tx, ty) in walls:
                         break
+                    # Nếu gặp quả bom khác, đồng bộ thời gian nổ theo quả bom kích hoạt trước
                     if (tx, ty) in bomb_timers:
                         other_timer = bomb_timers[(tx, ty)]
                         if timer < other_timer:
@@ -213,6 +212,7 @@ def resolve_bomb_chain_reactions(bombs: List[Tuple[int, int, int]], walls: Set[T
                         
     return [(bx, by, timer) for (bx, by), timer in bomb_timers.items()]
 
+# Xác định vùng nguy hiểm của bom (các ô nằm trong tia lửa nổ tương lai)
 def get_bomb_hazard_zones(bombs: List[Tuple[int, int, int]], walls: Set[Tuple[int, int]], bricks: Set[Tuple[int, int]], blast_radius: int, width: int = 15, height: int = 13) -> Dict[Tuple[int, int], int]:
     hazard_zones = {}
     for bx, by, timer in bombs:
@@ -227,16 +227,19 @@ def get_bomb_hazard_zones(bombs: List[Tuple[int, int, int]], walls: Set[Tuple[in
                     break
                 if (tx, ty) in walls:
                     break
+                # Ghi nhận ô nguy hiểm kèm thời gian bom nổ đếm ngược (timer càng nhỏ càng nguy hiểm)
                 if (tx, ty) not in hazard_zones or timer < hazard_zones[(tx, ty)]:
                     hazard_zones[(tx, ty)] = timer
                 if (tx, ty) in bricks:
                     break
     return hazard_zones
 
+# Thuật toán BFS tìm đường thoát hiểm khỏi vùng nguy hiểm của bom
 def check_escape_path(start_pos: Tuple[int, int], walls: Set[Tuple[int, int]], bricks: Set[Tuple[int, int]], bombs: List[Tuple[int, int, int]], blast_radius: int, current_explosions: Set[Tuple[int, int]], width: int = 15, height: int = 13) -> bool:
     resolved_bombs = resolve_bomb_chain_reactions(bombs, walls, bricks, blast_radius, width, height)
     hazard_zones = get_bomb_hazard_zones(resolved_bombs, walls, bricks, blast_radius, width, height)
     
+    # Nếu vị trí hiện tại không nằm trong vùng nguy hiểm, xem như an toàn
     if start_pos not in hazard_zones and start_pos not in current_explosions:
         return True
         
@@ -244,13 +247,14 @@ def check_escape_path(start_pos: Tuple[int, int], walls: Set[Tuple[int, int]], b
     visited = {(start_pos[0], start_pos[1], 0)}
     bomb_positions = {(bx, by) for bx, by, _ in resolved_bombs}
     
-    max_bfs_steps = 15
+    max_bfs_steps = 15  # Giới hạn tìm kiếm tránh tràn bộ nhớ
     while queue:
         cx, cy, t = queue.pop(0)
         
         if t > max_bfs_steps:
             continue
             
+        # Tìm thấy ô an toàn nằm ngoài vùng bom và không có lửa nổ
         if (cx, cy) not in hazard_zones and (cx, cy) not in current_explosions:
             return True
             
@@ -260,11 +264,13 @@ def check_escape_path(start_pos: Tuple[int, int], walls: Set[Tuple[int, int]], b
                 continue
             if (nx, ny) in walls or (nx, ny) in bricks:
                 continue
+            # Không được đi xuyên qua bom khác (trừ ô xuất phát ban đầu)
             if (nx, ny) in bomb_positions and (nx, ny) != start_pos:
                 continue
             if (nx, ny) in current_explosions:
                 continue
                 
+            # Nếu ô di chuyển tới sẽ bị nổ trước hoặc đúng thời điểm bước chân vào, bỏ qua
             if (nx, ny) in hazard_zones and hazard_zones[(nx, ny)] <= t + 1:
                 continue
                 
@@ -274,11 +280,15 @@ def check_escape_path(start_pos: Tuple[int, int], walls: Set[Tuple[int, int]], b
                 
     return False
 
+# Thuật toán BFS đa đích (Multi-target BFS): tìm khoảng cách ngắn nhất đồng thời tới:
+# Vật phẩm gần nhất, Ô đặt bom gần gạch nhất, và Đối thủ gần nhất.
+# Giúp tối ưu hóa hiệu suất (chỉ cần chạy BFS đúng 1 lần thay vì 3 lần).
 def bfs_shortest_path_distance_multi(start: Tuple[int, int], item_targets: Set[Tuple[int, int]], brick_targets: Set[Tuple[int, int]], enemy_targets: Set[Tuple[int, int]], walls: Set[Tuple[int, int]], bricks: Set[Tuple[int, int]], bombs: List[Tuple[int, int, int]] = None, width: int = 15, height: int = 13) -> Tuple[float, float, float]:
     min_item_dist = float('inf')
     min_brick_dist = float('inf')
     min_enemy_dist = float('inf')
     
+    # Kiểm tra nhanh tại ô xuất phát
     if start in item_targets:
         min_item_dist = 0.0
     if start in brick_targets:
@@ -296,7 +306,7 @@ def bfs_shortest_path_distance_multi(start: Tuple[int, int], item_targets: Set[T
     while queue:
         cx, cy, dist = queue.pop(0)
         
-        # Stop BFS early if all three target categories have been found
+        # Kết thúc sớm nếu đã tìm thấy cả 3 loại mục tiêu
         if min_item_dist != float('inf') and min_brick_dist != float('inf') and min_enemy_dist != float('inf'):
             break
             
@@ -310,6 +320,7 @@ def bfs_shortest_path_distance_multi(start: Tuple[int, int], item_targets: Set[T
                 if (nx, ny) in enemy_targets and min_enemy_dist == float('inf'):
                     min_enemy_dist = float(dist + 1)
                     
+                # Chỉ đi qua các ô trống (không tường, không gạch, không bom)
                 if (nx, ny) not in walls and (nx, ny) not in bricks and (nx, ny) not in bomb_positions:
                     if (nx, ny) not in visited:
                         visited.add((nx, ny))
@@ -317,11 +328,12 @@ def bfs_shortest_path_distance_multi(start: Tuple[int, int], item_targets: Set[T
                         
     return min_item_dist, min_brick_dist, min_enemy_dist
 
+# Hàm lượng giá Heuristic (đánh giá mức độ tốt/xấu của một ô đứng trên thang điểm số)
 def heuristic_evaluate(pos: Tuple[int, int], state_info: dict, placed_bomb: Tuple[int, int, int] = None) -> float:
     px, py = pos
     width, height = state_info["width"], state_info["height"]
     
-    # 1. Base check: is it in active explosion or touching enemy?
+    # 1. Tránh tuyệt đối ô đang nổ hoặc ô có đối thủ đứng trực tiếp
     if pos in state_info["explosions"]:
         return -100000.0
         
@@ -329,15 +341,15 @@ def heuristic_evaluate(pos: Tuple[int, int], state_info: dict, placed_bomb: Tupl
         if px == ex and py == ey:
             return -100000.0
             
-    # 2. Check escape path
+    # 2. Đánh giá tính an toàn: Phải có ít nhất 1 đường thoát hiểm
     bombs_to_check = list(state_info["bombs"])
     if placed_bomb:
         bombs_to_check.append(placed_bomb)
         
     if not check_escape_path(pos, state_info["walls"], state_info["bricks"], bombs_to_check, state_info["blast_radius"], state_info["explosions"], width, height):
-        return -80000.0
+        return -80000.0 # Phạt nặng nếu bị kẹt/không có đường thoát
         
-    # 3. Penalty for being in hazard zone (even if there is an escape path)
+    # 3. Phạt nếu đứng trong vùng ảnh hưởng nguy hiểm của bom (cho dù có đường thoát)
     resolved_bombs = resolve_bomb_chain_reactions(bombs_to_check, state_info["walls"], state_info["bricks"], state_info["blast_radius"], width, height)
     hazard_zones = get_bomb_hazard_zones(resolved_bombs, state_info["walls"], state_info["bricks"], state_info["blast_radius"], width, height)
     
@@ -345,9 +357,9 @@ def heuristic_evaluate(pos: Tuple[int, int], state_info: dict, placed_bomb: Tupl
     
     if pos in hazard_zones:
         timer = hazard_zones[pos]
-        score -= (5.0 - timer) * 150.0
+        score -= (5.0 - timer) * 150.0 # Bom sắp nổ (timer nhỏ) phạt nặng hơn bom mới đặt (timer lớn)
         
-    # 4. Enemy proximity penalty/bonus: encourage hunting when armed, flee when unarmed
+    # 4. Xử lý cự ly với kẻ địch (Tấn công khi có bom, phòng thủ chạy trốn khi hết vũ khí)
     min_enemy_dist = float('inf')
     for ex, ey in state_info["enemies"]:
         dist = abs(px - ex) + abs(py - ey)
@@ -356,9 +368,9 @@ def heuristic_evaluate(pos: Tuple[int, int], state_info: dict, placed_bomb: Tupl
             
     if min_enemy_dist == 1:
         if state_info["ammo"] > 0:
-            score += 2000.0  # Encourage getting adjacent to place a bomb
+            score += 2000.0  # Thưởng lớn khi áp sát đối phương khi có bom
         else:
-            score -= 3000.0  # Flee if we have no ammo
+            score -= 3000.0  # Trốn chạy gấp nếu ở cạnh đối thủ mà hết bom
     elif min_enemy_dist == 2:
         if state_info["ammo"] > 0:
             score += 1000.0
@@ -370,9 +382,10 @@ def heuristic_evaluate(pos: Tuple[int, int], state_info: dict, placed_bomb: Tupl
         else:
             score -= 30.0
         
-    # Build target sets for item, brick, and enemy proximity search
+    # Tạo danh sách các ô mục tiêu phục vụ tìm đường BFS
     item_targets = set(state_info["items"].keys()) if state_info["items"] else set()
     
+    # Ô đứng cạnh gạch để đặt bom phá
     brick_targets = set()
     if state_info["bricks"]:
         for bx, by in state_info["bricks"]:
@@ -381,6 +394,7 @@ def heuristic_evaluate(pos: Tuple[int, int], state_info: dict, placed_bomb: Tupl
                 if 0 <= tx < width and 0 <= ty < height and (tx, ty) not in state_info["walls"] and (tx, ty) not in state_info["bricks"]:
                     brick_targets.add((tx, ty))
                     
+    # Ô đứng cạnh kẻ địch để đặt bom tiêu diệt
     enemy_targets = set()
     if state_info["enemies"]:
         for ex, ey in state_info["enemies"]:
@@ -389,23 +403,24 @@ def heuristic_evaluate(pos: Tuple[int, int], state_info: dict, placed_bomb: Tupl
                 if 0 <= tx < width and 0 <= ty < height and (tx, ty) not in state_info["walls"] and (tx, ty) not in state_info["bricks"]:
                     enemy_targets.add((tx, ty))
                     
-    # Execute a single multi-target BFS to find closest target in all categories
+    # Chạy BFS đa đích tìm khoảng cách ngắn nhất
     dist_item, dist_brick, dist_enemy = bfs_shortest_path_distance_multi(
         pos, item_targets, brick_targets, enemy_targets,
         state_info["walls"], state_info["bricks"], bombs_to_check, width, height
     )
     
-    # 5. Item proximity bonus
+    # 5. Thưởng khuyến khích ăn vật phẩm tăng sức mạnh
     if dist_item != float('inf'):
         score += 1500.0 / (dist_item + 1)
         
-    # 6. Brick proximity bonus
+    # 6. Thưởng khuyến khích di chuyển lại gần gạch để khai phá
     if dist_brick != float('inf'):
         score += 300.0 / (dist_brick + 1)
         
-    # 7. Enemy proximity / hunt bonus
+    # 7. Thưởng di chuyển săn lùng kẻ địch
     if dist_enemy != float('inf'):
         if not state_info["bricks"]:
+            # Khi bản đồ hết gạch hoàn toàn -> Ưu tiên tuyệt đối việc săn lùng
             score += 800.0 / (dist_enemy + 1)
         else:
             if state_info["ammo"] > 0:
@@ -415,6 +430,7 @@ def heuristic_evaluate(pos: Tuple[int, int], state_info: dict, placed_bomb: Tupl
                 
     return score
 
+# Giả lập trạng thái tiếp theo của game khi người chơi thực hiện 1 hành động
 def simulate_state_forward(state_info: dict, player_action: str, step: int = 1) -> dict:
     next_state = {
         "player_pos": state_info["player_pos"],
@@ -432,7 +448,7 @@ def simulate_state_forward(state_info: dict, player_action: str, step: int = 1) 
     
     px, py = next_state["player_pos"]
     
-    # 1. Player move
+    # 1. Giả lập dịch chuyển người chơi
     if player_action == "UP":
         ny = py - 1
         if (px, ny) not in next_state["walls"] and (px, ny) not in next_state["bricks"] and (px, ny) not in {(b[0], b[1]) for b in next_state["bombs"]}:
@@ -450,11 +466,12 @@ def simulate_state_forward(state_info: dict, player_action: str, step: int = 1) 
         if (nx, py) not in next_state["walls"] and (nx, py) not in next_state["bricks"] and (nx, py) not in {(b[0], b[1]) for b in next_state["bombs"]}:
             next_state["player_pos"] = (nx, py)
     elif player_action == "BOMB":
+        # Giả lập đặt bom tại tọa độ hiện tại của Agent
         if next_state["ammo"] > 0 and (px, py) not in {(b[0], b[1]) for b in next_state["bombs"]}:
             next_state["bombs"].append((px, py, 4))
             next_state["ammo"] -= 1
             
-    # 2. Tick bombs
+    # 2. Giả lập cập nhật bộ đếm thời gian của bom
     new_bombs = []
     exploded_bombs = []
     for bx, by, timer in next_state["bombs"]:
@@ -465,7 +482,7 @@ def simulate_state_forward(state_info: dict, player_action: str, step: int = 1) 
             
     next_state["bombs"] = new_bombs
     
-    # Detonate exploded bombs
+    # Giải quyết các quả bom nổ ngay trong bước giả lập này
     if exploded_bombs:
         resolved_exploded = resolve_bomb_chain_reactions(
             [(bx, by, 0) for bx, by in exploded_bombs],
@@ -477,7 +494,7 @@ def simulate_state_forward(state_info: dict, player_action: str, step: int = 1) 
         )
         hazard = get_bomb_hazard_zones(resolved_exploded, next_state["walls"], next_state["bricks"], next_state["blast_radius"], next_state["width"], next_state["height"])
         next_state["explosions"] = set(hazard.keys())
-        next_state["bricks"] = next_state["bricks"] - next_state["explosions"]
+        next_state["bricks"] = next_state["bricks"] - next_state["explosions"]  # Phá hủy gạch bằng tia lửa nổ
     else:
         if step == 1:
             next_state["explosions"] = set(state_info["explosions"])
@@ -486,22 +503,16 @@ def simulate_state_forward(state_info: dict, player_action: str, step: int = 1) 
         
     return next_state
 
+# Lớp chính định nghĩa MinimaxAgent
 class MinimaxAgent(BaseAgent):
     """An agent that uses Minimax search with heuristic lookahead to choose actions."""
 
     def __init__(self, depth: int = 2):
-        """
-        Initialize MinimaxAgent.
-
-        Args:
-            depth (int): Depth of search tree.
-        """
         self.depth = depth
 
+    # Hàm đưa ra lựa chọn hành động tối ưu cho bước đi hiện tại của Agent
     def choose_action(self, state: dict) -> str:
-        """
-        Choose the best action using depth-2 lookahead heuristic search.
-        """
+        # Chuyển đổi trạng thái thô
         state_info = parse_state(state)
         
         legal_actions = state.get("legal_actions")
@@ -514,10 +525,11 @@ class MinimaxAgent(BaseAgent):
         fallback_action = "WAIT"
         fallback_score = -float('inf')
         
+        # Duyệt qua các hành động hợp lệ ở Bước 1
         for action1 in legal_actions:
             px, py = state_info["player_pos"]
             
-            # Prune impossible moves
+            # Cắt tỉa (Pruning) các hành động bất khả thi để tiết kiệm tài nguyên
             if action1 == "UP" and (px, py - 1) in state_info["walls"] | state_info["bricks"]:
                 continue
             if action1 == "DOWN" and (px, py + 1) in state_info["walls"] | state_info["bricks"]:
@@ -532,23 +544,26 @@ class MinimaxAgent(BaseAgent):
                 if (px, py) in {(b[0], b[1]) for b in state_info["bombs"]}:
                     continue
                     
+            # Giả lập trạng thái game sau khi đi hành động ở bước 1
             state_info_1 = simulate_state_forward(state_info, action1, step=1)
             score_1 = heuristic_evaluate(state_info_1["player_pos"], state_info_1)
             
-            # Update fallback safest action
+            # Lưu lại hành động dự phòng an toàn nhất đề phòng tất cả các nhánh sau đều dẫn tới cái chết
             if score_1 > fallback_score:
                 fallback_score = score_1
                 fallback_action = action1
                 
-            # If step-1 is already deadly/trapped, prune search tree
+            # Nếu nước đi ở bước 1 đã dẫn tới cái chết (-50,000 điểm), cắt tỉa không duyệt tiếp nhánh này
             if score_1 <= -50000.0:
                 continue
                 
-            # Lookahead step 2
+            # Duyệt tiếp Bước 2 (Lookahead Depth 2)
             max_score_2 = -float('inf')
             
             for action2 in ["UP", "DOWN", "LEFT", "RIGHT", "BOMB", "WAIT"]:
                 px1, py1 = state_info_1["player_pos"]
+                
+                # Cắt tỉa nhánh giả lập bước 2
                 if action2 == "UP" and (px1, py1 - 1) in state_info_1["walls"] | state_info_1["bricks"]:
                     continue
                 if action2 == "DOWN" and (px1, py1 + 1) in state_info_1["walls"] | state_info_1["bricks"]:
@@ -563,17 +578,18 @@ class MinimaxAgent(BaseAgent):
                     if (px1, py1) in {(b[0], b[1]) for b in state_info_1["bombs"]}:
                         continue
                         
+                # Giả lập trạng thái game sau hành động bước 2
                 state_info_2 = simulate_state_forward(state_info_1, action2, step=2)
                 score = heuristic_evaluate(state_info_2["player_pos"], state_info_2)
                 
-                # Reward useful bomb placement at step 1
+                # Điểm thưởng nếu đặt bom hiệu quả ở bước 1 (cạnh gạch hoặc cạnh địch)
                 if action1 == "BOMB":
                     is_next_to_brick = any((px + dx, py + dy) in state_info["bricks"] for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)])
                     is_next_to_enemy = any(abs(px - ex) + abs(py - ey) <= 2 for ex, ey in state_info["enemies"])
                     if is_next_to_brick or is_next_to_enemy:
-                        score += 3500.0
+                        score += 3500.0 # Thưởng lớn khuyến khích đặt bom tấn công
                     else:
-                        score -= 800.0
+                        score -= 800.0  # Phạt nếu đặt bom vô nghĩa
                         
                 if score > max_score_2:
                     max_score_2 = score
@@ -581,11 +597,12 @@ class MinimaxAgent(BaseAgent):
             if max_score_2 == -float('inf'):
                 max_score_2 = score_1
                 
+            # Cập nhật hành động tốt nhất dựa trên điểm số cực đại bước 2
             if max_score_2 > best_score:
                 best_score = max_score_2
                 best_action = action1
                 
-        # Fallback to the safest action if everything at step 2 is deadly/trapped
+        # Nếu tất cả các nước đi tính toán ở bước 2 đều chết (-50,000), trả về nước đi dự phòng an toàn nhất
         if best_score <= -50000.0:
             return fallback_action
             
