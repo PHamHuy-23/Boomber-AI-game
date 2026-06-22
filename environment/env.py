@@ -564,7 +564,10 @@ class Environment:
         info = {
             "alive_players": [p.id for p in self.players if p.is_alive],
             "scores": {p.id: p.score for p in self.players},
-            "lives": {p.id: p.lives for p in self.players}
+            "lives": {p.id: p.lives for p in self.players},
+            "bricks_destroyed_by": bricks_destroyed_by,
+            "kills_by": kills_by,
+            "items_collected_by": items_collected_by
         }
 
         return next_states, rewards, done, info
