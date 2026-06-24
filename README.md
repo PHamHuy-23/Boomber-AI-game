@@ -387,4 +387,4 @@ The platform tracks the following metrics per match:
 ## 📄 License
 
 This project is for academic and educational purposes.  
-© 2024 Phạm Quốc Huy & Phan Tiến Đạt — UIT VNU-HCM
+© 2024 Phạm Quốc Huy & Phan Tiến Đạt — UTE
