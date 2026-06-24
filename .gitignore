@@ -107,7 +107,10 @@ conda_env/
 *.swo
 
 # Project specific
-backend/
-database/
-frontend/
 .gemini/
+
+# SQLite database binary (schema.sql is tracked, but the DB file is local)
+database/bomberman.db
+
+# Unity submodule (not part of this project)
+frontend/unity-bomberman-tutorial/

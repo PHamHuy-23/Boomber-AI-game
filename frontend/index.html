@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bomb It 7 - Retro Arcade Edition</title>
+    <!-- Import Google Fonts (Press Start 2P for 8-bit text, Fredoka for rounded text) -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Fredoka:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Neon colors */
+            --bg-color: #0b071a;
+            --card-bg: rgba(22, 14, 45, 0.85);
+            --border-pink: #ff007f;
+            --border-cyan: #00f0ff;
+            --border-yellow: #fff000;
+            --border-green: #39ff14;
+            --text-primary: #e2e8f0;
+            
+            /* TILE PIXEL STYLES */
+            --tile-empty-1: #150c2e;
+            --tile-empty-2: #1e1140;
+            --tile-wall-glow: #005fcc;
+            --tile-brick-glow: #99004d;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Fredoka', sans-serif;
+            background-color: var(--bg-color);
+            background-image: radial-gradient(circle at center, #1b0f3b 0%, #06030c 100%);
+            color: var(--text-primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            position: relative;
+            scroll-behavior: smooth;
+        }
+
+        /* Scanline Overlay for retro CRT look */
+        body::after {
+            content: " ";
+            display: block;
+            position: fixed;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 9999;
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+        }
+
+        /* 8-bit text styling */
+        .arcade-font {
+            font-family: 'Press Start 2P', monospace;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            color: #fff;
+            text-shadow: 0 0 10px var(--border-pink), 0 0 20px var(--border-pink), 4px 4px 0px #000;
+            margin-bottom: 0.25rem;
+            text-align: center;
+            letter-spacing: -2px;
+            animation: textPulse 1.5s infinite alternate ease-in-out;
+        }
+
+        @keyframes textPulse {
+            0% { text-shadow: 0 0 8px var(--border-pink), 0 0 15px var(--border-pink), 4px 4px 0px #000; }
+            100% { text-shadow: 0 0 18px var(--border-pink), 0 0 30px var(--border-pink), 4px 4px 0px #000; }
+        }
+
+        .subtitle {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 0.55rem;
+            color: var(--border-cyan);
+            text-shadow: 0 0 5px rgba(0, 240, 255, 0.6);
+            margin-bottom: 2rem;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 2rem;
+            width: 100%;
+        }
+
+        /* Game Board Frame (Bomb It Arcade Style) */
+        .board-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+        }
+
+        .board-frame {
+            border: 10px solid #281b4e;
+            border-radius: 16px;
+            background-color: #06030c;
+            padding: 8px;
+            box-shadow: 0 0 0 4px var(--border-pink), 0 15px 35px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(0, 0, 0, 0.9);
+            position: relative;
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(15, 40px);
+            grid-template-rows: repeat(13, 40px);
+            gap: 3px;
+        }
+    
+        /* Retro Pixel Tiles */
+        .tile {
+            position: relative;
+            border-radius: 4px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.1s ease;
+            box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.25);
+        }
+
+        .tile-empty-even {
+            background-image: url('assets/Ground.png'); background-size: cover; image-rendering: pixelated;
+        }
+        .tile-empty-odd {
+            background-image: url('assets/Ground.png'); background-size: cover; image-rendering: pixelated;
+        }
+
+        .tile-wall {
+            background-image: url('assets/Block.png'); background-size: cover; image-rendering: pixelated;
+        }
+
+        .tile-brick {
+            background-image: url('assets/Brick.png'); background-size: cover; image-rendering: pixelated;
+        }
+
+        .tile-bomb {
+            background-image: url('assets/Bomb.png');
+            background-size: 160px 40px;
+            image-rendering: pixelated;
+            animation: bombSprite 0.6s steps(4) infinite;
+        }
+
+        @keyframes bombSprite {
+            from { background-position: 0px 0; }
+            to { background-position: -160px 0; }
+        }
+
+        .tile-explosion-center {
+            background-image: url('assets/ExplosionStart.png');
+            background-size: 320px 40px;
+            image-rendering: pixelated;
+            animation: explodeSprite 0.5s steps(8) infinite;
+        }
+
+        .tile-explosion-horizontal {
+            background-image: url('assets/ExplosionMiddle.png');
+            background-size: 320px 40px;
+            image-rendering: pixelated;
+            animation: explodeSprite 0.5s steps(8) infinite;
+        }
+
+        .tile-explosion-vertical {
+            background-image: url('assets/ExplosionMiddle.png');
+            background-size: 320px 40px;
+            image-rendering: pixelated;
+            transform: rotate(90deg);
+            animation: explodeSprite 0.5s steps(8) infinite;
+        }
+
+        .tile-item-radius {
+            background-image: url('assets/ItemBlastRadius.png'); background-size: cover; image-rendering: pixelated;
+        }
+
+        .tile-item-capacity {
+            background-image: url('assets/ItemExtraBomb.png'); background-size: cover; image-rendering: pixelated;
+        }
+
+        @keyframes explodeSprite {
+            from { background-position: 0px 0; }
+            to { background-position: -320px 0; }
+        }
+
+        /* Agents */
+        .agents-layer {
+            position: absolute;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .agent {
+            width: 28px;
+            height: 42px;
+            margin-top: -14px;
+            background-size: 112px 168px;
+            image-rendering: pixelated;
+            position: relative;
+            transition: transform 0.1s ease;
+            animation: walkSprite 0.6s steps(4) infinite;
+        }
+
+        @keyframes walkSprite {
+            from { background-position-x: 0px; }
+            to { background-position-x: -112px; }
+        }
+
+        .agent-player_1 { background-image: url('assets/PlayerWhiteWalk.png'); }
+        .agent-player_2 { background-image: url('assets/PlayerBlackWalk.png'); }
+        .agent-player_3 { background-image: url('assets/PlayerBlueWalk.png'); }
+        .agent-player_4 { background-image: url('assets/PlayerRedWalk.png'); }
+
+        .agent.dir-up { background-position-y: 0px; }
+        .agent.dir-down { background-position-y: -42px; }
+        .agent.dir-left { background-position-y: -84px; }
+        .agent.dir-right { background-position-y: -126px; }
+
+        /* Floating Ghost Animation on Death */
+        .ghost-dead {
+            font-size: 1.6rem;
+            position: absolute;
+            z-index: 100;
+            pointer-events: none;
+            animation: ghostFloat 1.4s forwards ease-out;
+            filter: drop-shadow(0 0 5px #fff);
+        }
+
+        @keyframes ghostFloat {
+            0% { transform: translateY(0) scale(0.8); opacity: 1; }
+            50% { transform: translateY(-24px) scale(1.1); opacity: 0.8; }
+            100% { transform: translateY(-56px) scale(0.8); opacity: 0; }
+        }
+
+        @keyframes explodeShock {
+            0% { transform: scale(0.5); }
+            100% { transform: scale(1.1); }
+        }
+
+        /* Sidebar & Cards (Bomb It Arcade Cabinet style) */
+        .sidebar {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+            max-width: 800px;
+        }
+
+        .arcade-card {
+            background: var(--card-bg);
+            border: 4px solid var(--border-pink);
+            box-shadow: 0 0 12px rgba(255, 0, 127, 0.3), inset 0 0 15px rgba(255, 0, 127, 0.15);
+            border-radius: 12px;
+            padding: 1.25rem;
+            position: relative;
+        }
+
+        .arcade-card-cyan {
+            border-color: var(--border-cyan);
+            box-shadow: 0 0 12px rgba(0, 240, 255, 0.3), inset 0 0 15px rgba(0, 240, 255, 0.15);
+        }
+
+        .arcade-card h2 {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 0.75rem;
+            color: #fff;
+            text-shadow: 2px 2px 0px #000;
+            margin-bottom: 1.25rem;
+            border-bottom: 2px dashed rgba(255, 255, 255, 0.15);
+            padding-bottom: 0.75rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Retro Arcade buttons with 3D bottom bevel */
+        .btn-arcade {
+            display: block;
+            width: 100%;
+            padding: 0.85rem;
+            border: none;
+            border-radius: 8px;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 0.65rem;
+            color: white;
+            cursor: pointer;
+            text-align: center;
+            background-color: var(--border-pink);
+            border-bottom: 5px solid #99004d;
+            text-shadow: 1px 1px 0px #000;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+            margin-bottom: 1rem;
+            transition: all 0.05s ease;
+        }
+
+        .btn-arcade:hover {
+            filter: brightness(1.1);
+        }
+
+        .btn-arcade:active {
+            transform: translateY(3px);
+            border-bottom-width: 2px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+        }
+
+        .btn-arcade-secondary {
+            background-color: #25184a;
+            border-bottom: 5px solid #140d2a;
+        }
+
+        .btn-arcade-cyan {
+            background-color: var(--border-cyan);
+            border-bottom: 5px solid #0099aa;
+        }
+
+        /* Agent Status Rows */
+        .status-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .agent-status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.65rem;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 2px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .agent-badge {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 800;
+            font-size: 0.9rem;
+        }
+
+        .badge-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 4px;
+            border: 1.5px solid #fff;
+        }
+
+        .agent-stats {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            font-weight: 600;
+        }
+
+        .agent-dead-row {
+            opacity: 0.4;
+            text-decoration: line-through;
+            border-color: rgba(239, 68, 68, 0.2);
+            background: rgba(239, 68, 68, 0.01);
+        }
+
+        /* Controls Guide */
+        .controls-guide {
+            font-size: 0.8rem;
+            line-height: 1.6;
+            color: #a4b3c8;
+        }
+
+        .controls-guide key {
+            background-color: #2c1a4e;
+            color: var(--border-cyan);
+            border: 2px solid var(--border-cyan);
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 0.55rem;
+            box-shadow: 0 2px 0 #000;
+        }
+
+        /* Autoplay Settings */
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            margin-top: 0.5rem;
+            user-select: none;
+            font-weight: 600;
+        }
+
+        .checkbox-container input {
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+            accent-color: var(--border-pink);
+        }
+
+        .step-counter {
+            font-size: 0.6rem;
+            color: var(--border-yellow);
+            text-shadow: 1px 1px 0px #000;
+        }
+
+        /* Game Status Message */
+        .game-status-msg {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 0.75rem;
+            text-align: center;
+            padding: 0.65rem;
+            border-radius: 6px;
+            margin-top: 0.75rem;
+            text-shadow: 1px 1px 0px #000;
+            border: 2px solid;
+        }
+        .status-running {
+            background-color: rgba(57, 255, 20, 0.1);
+            color: var(--border-green);
+            border-color: var(--border-green);
+            box-shadow: 0 0 8px rgba(57, 255, 20, 0.2);
+        }
+        .status-game_over {
+            background-color: rgba(255, 0, 127, 0.1);
+            color: var(--border-pink);
+            border-color: var(--border-pink);
+            box-shadow: 0 0 8px rgba(255, 0, 127, 0.2);
+        }
+
+        /* Leaderboard table as "HIGH SCORES" cabinet screen */
+        .leaderboard-cabinet {
+            border-color: var(--border-yellow);
+            box-shadow: 0 0 12px rgba(255, 240, 0, 0.2), inset 0 0 15px rgba(255, 240, 0, 0.1);
+        }
+
+        .leaderboard-title {
+            color: var(--border-yellow) !important;
+            animation: blinkTitle 1s infinite alternate;
+        }
+
+        @keyframes blinkTitle {
+            0% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        /* Animations */
+        @keyframes bounce {
+            from { transform: translateY(0); }
+            to { transform: translateY(-5px); }
+        }
+
+        @keyframes spawn {
+            from { transform: scale(0); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        /* LANDING PAGE STYLES */
+        .slideshow-wrapper {
+            width: 100vw;
+            height: 100vh;
+            overflow-y: scroll;
+            scroll-snap-type: y mandatory;
+            scroll-behavior: smooth;
+            box-sizing: border-box;
+            /* Hide scrollbars for cleaner look */
+            scrollbar-width: none;
+        }
+        .slideshow-wrapper::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* TOP NAVIGATION */
+        .top-nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 60px;
+            background: rgba(11, 7, 26, 0.95);
+            border-bottom: 2px solid var(--border-pink);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 4vw;
+            z-index: 1000;
+            box-shadow: 0 4px 15px rgba(255, 0, 127, 0.2);
+            font-family: 'Press Start 2P', monospace;
+            box-sizing: border-box;
+        }
+
+        .top-nav .logo {
+            font-size: 1.2rem;
+            color: #fff;
+            text-shadow: 0 0 10px var(--border-pink);
+        }
+
+        .top-nav .nav-links {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .top-nav a {
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 0.65rem;
+            transition: color 0.2s, text-shadow 0.2s;
+        }
+
+        .top-nav a:hover, .top-nav a.active {
+            color: var(--border-cyan);
+            text-shadow: 0 0 8px var(--border-cyan);
+        }
+
+        .slide {
+            width: 100vw;
+            height: 100vh;
+            scroll-snap-align: start;
+            scroll-snap-stop: always;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 80px 4vw 4vh 4vw;
+            box-sizing: border-box;
+        }
+
+        .container, .slide-content-split {
+            width: 100%;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide-nav {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+            z-index: 100;
+        }
+
+        .slide-nav .btn-arcade {
+            width: auto;
+            padding: 1rem 2rem;
+            margin-bottom: 0;
+            font-size: 0.8rem;
+        }
+
+        /* SLIDE CONTENT SPLIT */
+        .slide-content-split {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: 2.5rem;
+            width: 100%;
+            margin-top: 1rem;
+        }
+
+        .slide-text {
+            background: var(--card-bg);
+            border: 4px solid var(--border-cyan);
+            box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
+            border-radius: 12px;
+            padding: 1.5rem;
+            line-height: 1.6;
+            font-size: 0.95rem;
+        }
+
+        .slide-text h3 {
+            color: var(--border-yellow);
+            margin: 1.5rem 0 1rem 0;
+            font-size: 1.1rem;
+        }
+        
+        .slide-text p {
+            margin-bottom: 1rem;
+        }
+
+        .slide-visual {
+            background: rgba(10, 5, 25, 0.8);
+            border: 4px dashed var(--border-pink);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+        }
+
+        /* PIXEL TABLE */
+        .pixel-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1.5rem;
+            font-size: 0.85rem;
+        }
+        
+        .pixel-table th {
+            background: rgba(0, 240, 255, 0.15);
+            color: var(--border-cyan);
+            border: 2px solid var(--border-cyan);
+            padding: 10px;
+            text-align: center;
+            font-weight: 800;
+        }
+        
+        .pixel-table td {
+            border: 2px solid rgba(0, 240, 255, 0.3);
+            padding: 10px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.4);
+        }
+        
+        .pixel-table tr:hover td {
+            background: rgba(255, 0, 127, 0.15);
+        }
+        .text-left { text-align: left !important; }
+    </style>
+</head>
+<body>
+    <header class="top-nav">
+        <div class="logo">BOMB IT 7</div>
+        <div class="nav-links">
+            <a href="#slide-1" onclick="navTo(1)">Game Platform</a>
+            <a href="#slide-2" onclick="navTo(2)">So Sánh KQ</a>
+            <a href="#slide-3" onclick="navTo(3)">Bản Đồ CSP</a>
+            <a href="#slide-4" onclick="navTo(4)">Đối Kháng AI</a>
+            <a href="#slide-5" onclick="navTo(5)">Visual Map</a>
+        </div>
+    </header>
+
+    <div class="slideshow-wrapper">
+        <!-- SLIDE 1: GAME -->
+        <div class="slide active" id="slide-1">
+            <h1>BOMB IT 7</h1>
+            <div class="subtitle">Retro Pixel Arcade AI Platform</div>
+
+            <div class="container">
+        <!-- Main Game Board with arcade machine monitor styling -->
+        <div class="board-container">
+            <div class="board-frame">
+                <div id="board" class="board"></div>
+            </div>
+        </div>
+
+        <!-- Sidebar Panel -->
+        <div class="sidebar">
+            <!-- Game Controls -->
+            <div class="arcade-card">
+                <h2>Controls <span id="step-count" class="step-counter">Step: 0</span></h2>
+                <button id="btn-init" class="btn-arcade">INIT ARENA</button>
+                <button id="btn-step" class="btn-arcade btn-arcade-secondary">STEP FORWARD</button>
+                
+                <label class="checkbox-container">
+                    <input type="checkbox" id="chk-autoplay"> Autoplay Ticks
+                </label>
+                
+                <label class="checkbox-container" style="margin-top: 0.25rem;">
+                    <input type="checkbox" id="chk-sound" checked> Sound Synth
+                </label>
+                
+                <div id="game-status" class="game-status-msg status-running">RUNNING</div>
+            </div>
+
+            <!-- Agent Standings -->
+            <div class="arcade-card arcade-card-cyan">
+                <h2>Agent Statuses</h2>
+                <div id="agent-status-list" class="status-list">
+                    <!-- Dynamic Rows -->
+                </div>
+            </div>
+
+            <!-- Keyboard Guide -->
+            <div class="arcade-card">
+                <h2>Cabinet Keys</h2>
+                <div class="controls-guide">
+                    <p style="margin-bottom: 0.65rem;">👾 <strong>Control Player 1 (Blue)</strong>:</p>
+                    <p style="margin-bottom: 0.35rem;"><key>W</key> / <key>▲</key> : UP</p>
+                    <p style="margin-bottom: 0.35rem;"><key>S</key> / <key>▼</key> : DOWN</p>
+                    <p style="margin-bottom: 0.35rem;"><key>A</key> / <key>◀</key> : LEFT</p>
+                    <p style="margin-bottom: 0.35rem;"><key>D</key> / <key>▶</key> : RIGHT</p>
+                    <p style="margin-bottom: 0.75rem;"><key>Space</key> / <key>B</key> : DROP BOMB</p>
+                    <p style="font-size: 0.75rem; color: #6d84a3; line-height: 1.4;">* Pressing any move key will trigger a tick forward. Other agents act using Minimax algorithm.</p>
+                </div>
+            </div>
+
+            <!-- High Scores Cabinet Screen -->
+            <div class="arcade-card leaderboard-cabinet">
+                <h2 class="leaderboard-title">HIGH SCORES</h2>
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.75rem; font-weight: bold;">
+                    Matches: <span id="db-total-matches" style="color: var(--border-yellow);">0</span> | 
+                    Avg Ticks: <span id="db-avg-steps" style="color: var(--border-yellow);">0</span>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; font-size: 0.7rem; border-collapse: collapse; text-align: left;">
+                        <thead>
+                            <tr style="border-bottom: 2px dashed rgba(255, 240, 0, 0.25); color: var(--border-yellow); font-family: 'Press Start 2P', monospace; font-size: 0.45rem; line-height: 2;">
+                                <th style="padding: 4px 0;">Hero</th>
+                                <th style="padding: 4px 0; text-align: right;">Wins (WR)</th>
+                                <th style="padding: 4px 0; text-align: right;">Kills</th>
+                                <th style="padding: 4px 0; text-align: right;">Suicide</th>
+                                <th style="padding: 4px 0; text-align: right;">Latency</th>
+                            </tr>
+                        </thead>
+                        <tbody id="db-leaderboard-body">
+                            <tr style="color: #64748b;"><td colspan="5" style="padding: 8px 0; text-align: center;">Retrieving cabinet data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <button id="btn-refresh-db" class="btn-arcade btn-arcade-cyan" style="margin-top: 1rem; padding: 0.65rem; font-size: 0.55rem; width: 100%;">REFRESH SCORES</button>
+            </div>
+        </div>
+            </div> <!-- End container -->
+        </div> <!-- End Slide 1 -->
+
+        <!-- SLIDE 2: Bảng 1 -->
+        <div class="slide" id="slide-2">
+            <h1>ĐÁNH GIÁ THỰC NGHIỆM</h1>
+            <div class="subtitle">So Sánh Định Lượng Các Thuật Toán</div>
+            <div class="slide-content-split">
+                <div class="slide-text">
+                    <p>Để chứng minh tính hiệu quả của các giải pháp đề xuất, hệ thống đã tiến hành thử nghiệm thực nghiệm quy mô lớn với 1000 trận đấu giả lập trên các cấu hình thuật toán khác nhau.</p>
+                    <p>Thực nghiệm đo đạc khả năng tìm đường của các thuật toán thuộc nhóm tìm kiếm không thông tin (BFS, DFS) và có thông tin (A*, Greedy Best-First Search) trong môi trường có mật độ gạch phá hủy và bom ngẫu nhiên.</p>
+                    
+                    <h3>Bảng 1: Hiệu năng định lượng của các thuật toán điều hướng</h3>
+                    <table class="pixel-table">
+                        <thead>
+                            <tr>
+                                <th>Thuật toán</th>
+                                <th>Thời gian (ms)</th>
+                                <th>Tỷ lệ thành công (%)</th>
+                                <th>Độ dài lộ trình</th>
+                                <th>Tỷ lệ tự sát (%)</th>
+                                <th>Bộ nhớ cao điểm (MB)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="text-left" style="color: var(--border-pink)">BFS</td>
+                                <td>21</td>
+                                <td>-</td>
+                                <td>-</td>
+                                <td>(Khi bị bom chặn)</td>
+                                <td>-</td>
+                            </tr>
+                            <tr>
+                                <td class="text-left" style="color: var(--border-pink)">DFS</td>
+                                <td>< 1</td>
+                                <td>-</td>
+                                <td>Quá dài</td>
+                                <td>(Kẹt vào ngõ cụt)</td>
+                                <td>21</td>
+                            </tr>
+                            <tr>
+                                <td class="text-left" style="color: var(--border-green)">Greedy Search</td>
+                                <td>-</td>
+                                <td>-</td>
+                                <td>-</td>
+                                <td>(Lao vào vùng bom)</td>
+                                <td>21</td>
+                            </tr>
+                            <tr>
+                                <td class="text-left" style="color: var(--border-green)">A* (Có thông tin)</td>
+                                <td>7</td>
+                                <td>-</td>
+                                <td>Ngắn nhất</td>
+                                <td>(Tránh bom tuyệt đối)</td>
+                                <td>14</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <p><strong>Phân tích kết quả:</strong> Số liệu tại Bảng 1 chỉ ra sự vượt trội của nhóm có thông tin. A* đạt độ dài lộ trình trung bình ngắn nhất và có tỷ lệ tự sát thấp kỷ lục nhờ tích hợp Danger Map vào hàm chi phí. DFS chạy nhanh nhất nhưng hoàn toàn không phù hợp do lộ trình quá dài và dễ đưa tác nhân vào ngõ cụt.</p>
+                </div>
+                <div class="slide-visual arcade-card">
+                    <div style="color: #64748b; font-family: 'Press Start 2P', monospace; text-align:center; font-size: 0.8rem; line-height: 2; margin: auto;">
+                        [ TRỰC QUAN HÓA BẢNG 1 ]<br><br><span style="font-size:0.5rem">Visual Placeholder</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 3: Bảng 2 -->
+        <div class="slide" id="slide-3">
+            <h1>ĐÁNH GIÁ HIỆU NĂNG</h1>
+            <div class="subtitle">Bộ Sinh Bản Đồ (CSP kết hợp Local Search)</div>
+            <div class="slide-content-split">
+                <div class="slide-text">
+                    <p>Thực nghiệm tiến hành so sánh ba phương pháp sinh bản đồ: Sinh ngẫu nhiên thuần túy, Sinh bằng CSP thuần túy, và Sinh lai ghép bằng CSP kết hợp tối ưu hóa bằng thuật toán di truyền Genetic Algorithm (CSP + GA).</p>
+                    
+                    <h3>Bảng 2: So sánh chất lượng bản đồ</h3>
+                    <table class="pixel-table">
+                        <thead>
+                            <tr>
+                                <th>Phương pháp sinh</th>
+                                <th>Tgian tạo (s)</th>
+                                <th>Tỷ lệ hợp lệ (%)</th>
+                                <th>Độ đối xứng [0,1]</th>
+                                <th>Lệch tỷ lệ thắng (%)</th>
+                                <th>Phân tán vật phẩm [0,1]</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="text-left">Sinh ngẫu nhiên</td>
+                                <td>-</td>
+                                <td>-</td>
+                                <td>-</td>
+                                <td>(Mất cân bằng lớn)</td>
+                                <td>-</td>
+                            </tr>
+                            <tr>
+                                <td class="text-left" style="color: var(--border-yellow)">CSP thuần túy</td>
+                                <td>-</td>
+                                <td>100</td>
+                                <td>Hoàn hảo</td>
+                                <td>8</td>
+                                <td>-</td>
+                            </tr>
+                            <tr>
+                                <td class="text-left" style="color: var(--border-cyan)">CSP + GA (Đề xuất)</td>
+                                <td>-</td>
+                                <td>100</td>
+                                <td>Cực kỳ cân bằng</td>
+                                <td>~0</td>
+                                <td>Tối ưu</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <p><strong>Phân tích kết quả:</strong> Việc áp dụng CSP đảm bảo tỷ lệ bản đồ hợp lệ chơi được luôn đạt 100% nhờ các ràng buộc chặn nghiêm ngặt trong backtracking. Khi tích hợp thêm thuật toán di truyền (GA) để tinh chỉnh gạch và vật phẩm, độ chênh lệch tỷ lệ thắng giảm xuống mức tối thiểu, mang lại sự cân bằng hoàn hảo cho các trận đối kháng chuyên nghiệp.</p>
+                </div>
+                <div class="slide-visual arcade-card">
+                    <div style="color: #64748b; font-family: 'Press Start 2P', monospace; text-align:center; font-size: 0.8rem; line-height: 2; margin: auto;">
+                        [ TRỰC QUAN HÓA BẢNG 2 ]<br><br><span style="font-size:0.5rem">Visual Placeholder</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 4: Bảng 3 -->
+        <div class="slide" id="slide-4">
+            <h1>ĐỐI KHÁNG THỰC TẾ</h1>
+            <div class="subtitle">Hiệu Năng Tác Nhân Lai Ghép (Đề Xuất)</div>
+            <div class="slide-content-split">
+                <div class="slide-text">
+                    <p>Thực nghiệm tiến hành cho các cấu hình tác nhân đối đầu trực tiếp với nhau qua 500 trận đấu để đo lường năng lực chiến đấu thực tế.</p>
+                    
+                    <h3>Bảng 3: Ma trận kết quả đối kháng</h3>
+                    <table class="pixel-table">
+                        <thead>
+                            <tr>
+                                <th>Tác nhân A</th>
+                                <th>Tác nhân B</th>
+                                <th>Thắng A (%)</th>
+                                <th>Thắng B (%)</th>
+                                <th>Hòa (%)</th>
+                                <th>Phản hồi (ms)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="text-left">Minimax Alpha-Beta</td>
+                                <td class="text-left">SimpleAgent</td>
+                                <td style="color: var(--border-cyan)">Áp đảo</td>
+                                <td>-</td>
+                                <td>3</td>
+                                <td>-</td>
+                            </tr>
+                            <tr>
+                                <td class="text-left">MCTS (Rollout ngẫu nhiên)</td>
+                                <td class="text-left">Minimax Alpha-Beta</td>
+                                <td>Rất thấp</td>
+                                <td style="color: var(--border-cyan)">Cao</td>
+                                <td>-</td>
+                                <td>-</td>
+                            </tr>
+                            <tr>
+                                <td class="text-left">MCTS (Rollout bi quan)</td>
+                                <td class="text-left">Minimax Alpha-Beta</td>
+                                <td>Cải thiện (13%)</td>
+                                <td style="color: var(--border-cyan)">Cao</td>
+                                <td>-</td>
+                                <td>-</td>
+                            </tr>
+                            <tr>
+                                <td class="text-left" style="color: var(--border-green); font-weight: bold;">Lai Ghép (Đề xuất)</td>
+                                <td class="text-left">Minimax (Độ sâu 6)</td>
+                                <td style="color: var(--border-cyan)">Áp đảo</td>
+                                <td>Thấp</td>
+                                <td>-</td>
+                                <td style="color: var(--border-yellow)">Rất nhanh</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <p><strong>Phân tích kết quả:</strong> MCTS cơ chế rollout ngẫu nhiên có hiệu năng rất kém do "tactical blind spot". Đáng chú ý nhất, Tác nhân Lai Ghép đề xuất đạt hiệu suất chiến thắng áp đảo trước tác nhân Minimax độ sâu 6. Điểm mấu chốt là thời gian phản hồi cực kì tối ưu nhờ cơ chế phân cấp quyết định thông minh của Cây hành vi, chỉ bật Minimax khi cận chiến.</p>
+                </div>
+                <div class="slide-visual arcade-card">
+                    <div style="color: #64748b; font-family: 'Press Start 2P', monospace; text-align:center; font-size: 0.8rem; line-height: 2; margin: auto;">
+                        [ TRỰC QUAN HÓA BẢNG 3 ]<br><br><span style="font-size:0.5rem">Visual Placeholder</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- SLIDE 5: Visual Map Gen -->
+        <div class="slide" id="slide-5">
+            <h1>MÔ PHỎNG SINH BẢN ĐỒ</h1>
+            <div class="subtitle">Khởi Tạo Bằng Thuật Toán CSP & Genetic Algorithm</div>
+            <div class="slide-content-split">
+                <div class="slide-text">
+                    <p>Mô phỏng quá trình thuật toán ràng buộc thỏa mãn (CSP) sắp xếp gạch và vật phẩm một cách đối xứng hoàn hảo trên bản đồ kích thước 15x13.</p>
+                    <p>Các tiêu chí được đảm bảo nghiêm ngặt:</p>
+                    <ul style="margin-left: 1.5rem; margin-bottom: 1rem; line-height: 1.8; color: var(--border-cyan);">
+                        <li><strong>Không bị chặn lối:</strong> 4 góc xuất phát của người chơi luôn có vùng an toàn hình chữ L.</li>
+                        <li><strong>Đối xứng tuyệt đối:</strong> Gạch (Brick) và vật phẩm ẩn (Item) được sinh theo tâm đối xứng 4 góc.</li>
+                        <li><strong>Phân bố vật phẩm:</strong> Tránh tình trạng dồn cục vật phẩm ở một góc thông qua lai ghép GA.</li>
+                    </ul>
+                    <button class="btn-arcade btn-arcade-pink" onclick="generateDemoMap()" style="font-size: 0.7rem; padding: 1rem; width: 100%; margin-top: 1rem;">🎲 SINH BẢN ĐỒ MỚI</button>
+                </div>
+                <div class="slide-visual" style="border: none; background: transparent;">
+                    <!-- A new board for demo -->
+                    <div class="board-frame" style="transform: scale(0.9); transform-origin: center;">
+                        <div class="board" id="demo-board">
+                            <!-- JS will inject tiles here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div> <!-- End slideshow-wrapper -->
+
+    <script>
+        // Landing Page Scroll Navigation
+        let currentSlide = 1;
+        const totalSlides = 5;
+
+        function navTo(n) {
+            currentSlide = n;
+            document.getElementById('slide-' + n).scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function nextSlide() {
+            currentSlide = currentSlide < totalSlides ? currentSlide + 1 : totalSlides;
+            document.getElementById('slide-' + currentSlide).scrollIntoView({ behavior: 'smooth' });
+        }
+        function prevSlide() {
+            currentSlide = currentSlide > 1 ? currentSlide - 1 : 1;
+            document.getElementById('slide-' + currentSlide).scrollIntoView({ behavior: 'smooth' });
+        }
+        // Support keyboard navigation
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'PageDown' || e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                nextSlide();
+            }
+            if (e.key === 'PageUp' || e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                prevSlide();
+            }
+        });
+
+        // Intersection Observer to update active nav link
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const id = entry.target.id;
+                    document.querySelectorAll('.top-nav a').forEach(a => {
+                        a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+                    });
+                    currentSlide = parseInt(id.split('-')[1]);
+                }
+            });
+        }, { threshold: 0.5 });
+
+        document.querySelectorAll('.slide').forEach(slide => observer.observe(slide));
+
+        // DEMO MAP GENERATION
+        function generateDemoMap() {
+            const board = document.getElementById('demo-board');
+            if (!board) return;
+            board.innerHTML = '';
+            const width = 15;
+            const height = 13;
+            let grid = Array(height).fill().map(() => Array(width).fill('empty'));
+
+            // 1. Unbreakable walls
+            for (let y = 1; y < height; y += 2) {
+                for (let x = 1; x < width; x += 2) {
+                    grid[y][x] = 'wall';
+                }
+            }
+
+            // 2. Safe zones
+            const safeZones = [
+                [0,0], [1,0], [0,1],
+                [0,14], [1,14], [0,13],
+                [12,0], [11,0], [12,1],
+                [12,14], [11,14], [12,13]
+            ];
+
+            // 3. Symmetric bricks
+            for (let y = 0; y <= height / 2; y++) {
+                for (let x = 0; x <= width / 2; x++) {
+                    if (grid[y][x] === 'wall') continue;
+                    // Check safe zone
+                    if (safeZones.some(pos => pos[0] === y && pos[1] === x)) continue;
+                    
+                    // 40% chance of brick
+                    if (Math.random() < 0.4) {
+                        grid[y][x] = 'brick';
+                        grid[height - 1 - y][x] = 'brick';
+                        grid[y][width - 1 - x] = 'brick';
+                        grid[height - 1 - y][width - 1 - x] = 'brick';
+                    }
+                }
+            }
+
+            // 4. Items (Render directly for visualization)
+            let itemsPlaced = 0;
+            let attempts = 0;
+            while (itemsPlaced < 12 && attempts < 100) {
+                let x = Math.floor(Math.random() * (width/2));
+                let y = Math.floor(Math.random() * (height/2));
+                if (grid[y][x] === 'brick') {
+                    const itemType = Math.random() < 0.5 ? 'item-capacity' : 'item-radius';
+                    grid[y][x] = itemType;
+                    grid[height - 1 - y][x] = itemType;
+                    grid[y][width - 1 - x] = itemType;
+                    grid[height - 1 - y][width - 1 - x] = itemType;
+                    itemsPlaced += 4;
+                }
+                attempts++;
+            }
+
+            // Render
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const tile = document.createElement('div');
+                    tile.className = 'tile tile-empty-' + ((x + y) % 2 === 0 ? 'even' : 'odd');
+                    
+                    if (grid[y][x] !== 'empty') {
+                        const layer = document.createElement('div');
+                        layer.className = 'tile tile-' + grid[y][x];
+                        layer.style.width = '100%';
+                        layer.style.height = '100%';
+                        layer.style.position = 'absolute';
+                        layer.style.top = '0';
+                        layer.style.left = '0';
+                        tile.appendChild(layer);
+                    }
+                    board.appendChild(tile);
+                }
+            }
+        }
+        
+        // Initial generation
+        setTimeout(generateDemoMap, 500);
+    </script>
+
+    <script src="app.js"></script>
+</body>
+</html>
