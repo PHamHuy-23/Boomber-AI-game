@@ -16,7 +16,7 @@
 | Phan Tiến Đạt | 24110195 |
 
 > **Course**: Introduction to Artificial Intelligence  
-> **University**: University of Information Technology (UIT) — VNU-HCM
+> **University**: University of Technology and Engineering ( UTE )
 
 ---
 
