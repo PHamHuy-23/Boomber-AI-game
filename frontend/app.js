@@ -2,6 +2,8 @@ const API_URL = 'http://127.0.0.1:8000';
 let gameState = null;
 let oldGameState = null;
 let autoplayInterval = null;
+let availableAgents = [];      // List of {id, name} from /api/agents
+let currentAgentConfigs = {};  // Current agent selections {player_2: 'bfs', ...}
 
 // Tile mapping for Bomb It style elements
 const TILE_CLASSES = {
@@ -57,6 +59,9 @@ const dbTotalMatchesEl = document.getElementById('db-total-matches');
 const dbAvgStepsEl = document.getElementById('db-avg-steps');
 const dbLeaderboardBodyEl = document.getElementById('db-leaderboard-body');
 const btnRefreshDb = document.getElementById('btn-refresh-db');
+const selectP2 = document.getElementById('agent-select-p2');
+const selectP3 = document.getElementById('agent-select-p3');
+const selectP4 = document.getElementById('agent-select-p4');
 
 // --- RETRO SOUND SYNTHESIZER (WEB AUDIO API) ---
 class RetroAudioSynth {
@@ -206,17 +211,59 @@ function spawnDeathGhost(x, y) {
     }
 }
 
+// Load available agent list from backend and populate selectors
+async function loadAgentList() {
+    try {
+        const resp = await fetch(`${API_URL}/api/agents`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        availableAgents = data.agents || [];
+
+        const selects = [selectP2, selectP3, selectP4];
+        selects.forEach(sel => {
+            if (!sel) return;
+            const currentVal = sel.value;
+            sel.innerHTML = '';
+            availableAgents.forEach(agent => {
+                const opt = document.createElement('option');
+                opt.value = agent.id;
+                opt.textContent = agent.name;
+                sel.appendChild(opt);
+            });
+            // Restore previous selection if still valid
+            if (availableAgents.find(a => a.id === currentVal)) {
+                sel.value = currentVal;
+            }
+        });
+    } catch (err) {
+        console.warn('Could not load agent list:', err);
+    }
+}
+
 // Initialize Game
 async function initGame() {
     try {
+        // Read agent selections from dropdowns
+        const agentConfigs = {
+            player_2: selectP2 ? selectP2.value : 'minimax',
+            player_3: selectP3 ? selectP3.value : 'minimax',
+            player_4: selectP4 ? selectP4.value : 'minimax',
+        };
+        currentAgentConfigs = agentConfigs;
+
         const response = await fetch(`${API_URL}/api/init`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent_configs: agentConfigs })
         });
         if (!response.ok) throw new Error('API initialization failed');
         const data = await response.json();
         oldGameState = null;
         gameState = data.state;
+        // Update configs from server response
+        if (data.agent_configs) {
+            currentAgentConfigs = data.agent_configs;
+        }
         updateUI(data);
         loadDbStats();
     } catch (err) {
@@ -362,9 +409,19 @@ function updateUI(data) {
         dot.className = 'badge-dot';
         dot.style.backgroundColor = AGENT_COLORS[agent.id] || '#ffffff';
         
-        const nameText = document.createTextNode(AGENT_NAMES[agent.id] || agent.id);
+        // Show agent algorithm name for bots
+        let displayName = AGENT_NAMES[agent.id] || agent.id;
+        let algoLabel = '';
+        if (agent.id !== 'player_1' && currentAgentConfigs[agent.id]) {
+            const algo = currentAgentConfigs[agent.id];
+            const agentInfo = availableAgents.find(a => a.id === algo);
+            const algoName = agentInfo ? agentInfo.name : algo;
+            algoLabel = `<span class="algo-badge">${algoName}</span>`;
+        }
+        const nameEl = document.createElement('span');
+        nameEl.innerHTML = displayName + algoLabel;
         badge.appendChild(dot);
-        badge.appendChild(nameText);
+        badge.appendChild(nameEl);
         
         const stats = document.createElement('div');
         stats.className = 'agent-stats';
@@ -528,6 +585,8 @@ async function loadDbStats() {
 
 btnRefreshDb.addEventListener('click', loadDbStats);
 
-// Load Game and DB stats on start
-initGame();
-loadDbStats();
+// Load agent list, then game and DB stats on start
+loadAgentList().then(() => {
+    initGame();
+    loadDbStats();
+});

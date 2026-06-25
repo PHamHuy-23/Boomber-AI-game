@@ -2,7 +2,7 @@ import random
 import time
 import sys
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -11,19 +11,67 @@ from app.map_generator import MapGenerator
 from app.database import init_db, register_default_agents, save_match_results, get_db_connection
 from app.metrics_tracker import MetricsTracker
 
-# Find 'Boomber-AI-' folder and add it to sys.path
+# Find project root and add to sys.path
 current_dir = os.path.abspath(__file__)
-while current_dir:
-    if os.path.basename(current_dir) == 'Boomber-AI-':
-        if current_dir not in sys.path:
-            sys.path.append(current_dir)
+project_root = None
+for _ in range(10):
+    if os.path.isdir(os.path.join(current_dir, 'agents')):
+        project_root = current_dir
         break
     parent = os.path.dirname(current_dir)
     if parent == current_dir:
         break
     current_dir = parent
+if project_root and project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
+# Import all agents
 from agents.minimax_agent import MinimaxAgent
+from agents.expectimax_agent import ExpectimaxAgent
+from agents.random_agent import RandomAgent
+from agents.bfs_agent import BFSAgent
+from agents.dfs_agent import DFSAgent
+from agents.astar_agent import AStarAgent
+from agents.greedy_agent import GreedyAgent
+from agents.hill_climbing_agent import HillClimbingAgent
+from agents.simulated_annealing_agent import SimulatedAnnealingAgent
+from agents.and_or_search_agent import AndOrSearchAgent
+from agents.online_search_agent import OnlineSearchAgent
+from agents.backtracking_agent import BacktrackingAgent
+from agents.min_conflicts_agent import MinConflictsAgent
+
+# Agent registry: name -> factory function
+AGENT_REGISTRY = {
+    "minimax":             lambda: MinimaxAgent(depth=2),
+    "expectimax":         lambda: ExpectimaxAgent(depth=2),
+    "random":             lambda: RandomAgent(),
+    "bfs":                lambda: BFSAgent(),
+    "dfs":                lambda: DFSAgent(depth_limit=5),
+    "astar":              lambda: AStarAgent(),
+    "greedy":             lambda: GreedyAgent(),
+    "hill_climbing":      lambda: HillClimbingAgent(),
+    "simulated_annealing": lambda: SimulatedAnnealingAgent(),
+    "and_or_search":      lambda: AndOrSearchAgent(depth=2),
+    "online_search":      lambda: OnlineSearchAgent(),
+    "backtracking":       lambda: BacktrackingAgent(max_depth=6),
+    "min_conflicts":      lambda: MinConflictsAgent(),
+}
+
+AGENT_DISPLAY_NAMES = {
+    "minimax":             "Minimax",
+    "expectimax":         "Expectimax",
+    "random":             "Random",
+    "bfs":                "BFS",
+    "dfs":                "DFS",
+    "astar":              "A*",
+    "greedy":             "Greedy",
+    "hill_climbing":      "Hill Climbing",
+    "simulated_annealing": "Simulated Annealing",
+    "and_or_search":      "AND-OR Search",
+    "online_search":      "Online Search (LRTA*)",
+    "backtracking":       "Backtracking",
+    "min_conflicts":      "Min-Conflicts",
+}
 
 app = FastAPI(title="Bomberman AI Platform Demo API", version="1.0.0")
 
@@ -43,6 +91,11 @@ global_tracker: Optional[MetricsTracker] = None
 class StepRequest(BaseModel):
     actions: Dict[str, int]
 
+class InitRequest(BaseModel):
+    # Map agent_id -> algorithm name (e.g. "player_2" -> "bfs")
+    # player_1 is always human-controlled; other players default to "minimax"
+    agent_configs: Optional[Dict[str, str]] = None
+
 @app.on_event("startup")
 def startup_event():
     # Automatically initialize SQLite database and insert default agent profiles on start
@@ -53,10 +106,46 @@ def startup_event():
 def read_root():
     return {"message": "Bomberman AI Simulation Server is running"}
 
+@app.get("/api/agents")
+def list_agents():
+    """Return list of available agent algorithms."""
+    return {
+        "agents": [
+            {"id": k, "name": v}
+            for k, v in AGENT_DISPLAY_NAMES.items()
+        ]
+    }
+
+# Store per-game agent configs
+global_agent_configs: Dict[str, str] = {}
+# Store stateful agents (e.g. OnlineSearchAgent has internal state)
+global_agent_instances: Dict[str, Any] = {}
+
 @app.post("/api/init")
-def init_game():
-    global global_engine, global_tracker
+def init_game(req: Optional[InitRequest] = None):
+    global global_engine, global_tracker, global_agent_configs, global_agent_instances
     try:
+        # Parse agent configs from request
+        configs = {}
+        if req and req.agent_configs:
+            configs = req.agent_configs
+
+        # Default configs for bots (player_1 is always human)
+        default_bot_agent = "minimax"
+        global_agent_configs = {
+            "player_2": configs.get("player_2", default_bot_agent),
+            "player_3": configs.get("player_3", default_bot_agent),
+            "player_4": configs.get("player_4", default_bot_agent),
+        }
+
+        # Instantiate stateful agents fresh for new game
+        global_agent_instances = {}
+        for pid, algo in global_agent_configs.items():
+            if algo in AGENT_REGISTRY:
+                global_agent_instances[pid] = AGENT_REGISTRY[algo]()
+            else:
+                global_agent_instances[pid] = AGENT_REGISTRY["minimax"]()
+
         # Initialize metrics tracker
         global_tracker = MetricsTracker(agent_ids=["player_1", "player_2", "player_3", "player_4"])
         
@@ -72,7 +161,8 @@ def init_game():
         
         return {
             "status": "initialized",
-            "state": global_engine.get_state()
+            "state": global_engine.get_state(),
+            "agent_configs": global_agent_configs
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -87,13 +177,13 @@ def step_game(req: StepRequest):
     try:
         actions = req.actions
         
-        # Provide Minimax AI for other players if not specified, measuring decision time
+        # Provide AI for other players if not specified, using selected agent algorithm
         for agent_id, agent in global_engine.state.agents.items():
             if agent.is_alive and agent_id != "player_1":
                 if agent_id not in actions:
                     t_bot_start = time.perf_counter()
                     
-                    # Convert engine state to Minimax state dict
+                    # Convert engine state to agent state dict
                     walls = []
                     bricks = []
                     items = {}
@@ -114,7 +204,7 @@ def step_game(req: StepRequest):
                         if aid != agent_id and a.is_alive
                     ]
                     
-                    # Map uvicorn/engine bomb timer (7 steps) to Minimax timer (4 steps)
+                    # Map engine bomb timer to agent timer
                     bomb_positions = [
                         (b.x, b.y, max(1, b.timer - 3)) for b in global_engine.state.bombs
                     ]
@@ -135,9 +225,11 @@ def step_game(req: StepRequest):
                         "height": global_engine.state.height
                     }
                     
-                    # Run Minimax
-                    bot_minimax = MinimaxAgent(depth=2)
-                    action_str = bot_minimax.choose_action(state_for_agent)
+                    # Use the selected agent instance (stateful agents reuse same instance)
+                    bot_agent = global_agent_instances.get(agent_id)
+                    if bot_agent is None:
+                        bot_agent = MinimaxAgent(depth=2)
+                    action_str = bot_agent.choose_action(state_for_agent)
                     
                     action_map = {
                         "WAIT": 0, "STOP": 0,
