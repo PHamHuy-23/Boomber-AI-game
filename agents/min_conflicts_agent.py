@@ -1,242 +1,171 @@
-"""Min-Conflicts Agent (CSP) for Bomberman."""
-import gc
+"""Min-Conflicts Agent (CSP Local Search) for Bomberman."""
 import random
-from collections import deque
-from typing import Tuple, Dict, Set, List
+from typing import List, Tuple, Dict, Any
 from agents import BaseAgent
+from agents.search_utils import parse_state, simulate_state, evaluate_state
 
+def get_valid_actions_for_mc(st: dict) -> List[str]:
+    """Get all physically valid actions for the player in the current state."""
+    px, py = st["player_pos"]
+    walls = st["walls"]
+    bricks = st["bricks"]
+    bombs = st["bombs"]
+    bomb_positions = {(bx, by) for bx, by, _ in bombs}
+    width, height = st["width"], st["height"]
 
-def is_env_object(obj) -> bool:
-    try:
-        return obj.__class__.__name__ == 'Environment'
-    except Exception:
-        return False
+    valid = ["WAIT"]
+    moves = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}
+    for action, (dx, dy) in moves.items():
+        nx, ny = px + dx, py + dy
+        if 0 <= nx < width and 0 <= ny < height:
+            if (nx, ny) not in walls and (nx, ny) not in bricks and (nx, ny) not in bomb_positions:
+                valid.append(action)
 
+    if st["ammo"] > 0 and (px, py) not in bomb_positions:
+        valid.append("BOMB")
+    return valid
 
-def parse_state(state: dict) -> dict:
-    player_pos = state.get("player_pos") or state.get("self_position")
-    width, height = 15, 13
-    board = state.get("board") or state.get("grid")
-    if board is not None:
-        height = len(board); width = len(board[0]) if height > 0 else 0
-    walls = set(); bricks = set()
-    if board is not None:
-        for y in range(height):
-            for x in range(width):
-                val = board[y][x]
-                if val == 1: walls.add((x,y))
-                elif val == 2: bricks.add((x,y))
-                if player_pos is None and val == 5: player_pos = (x,y)
-    else:
-        try:
-            env = None
-            for obj in gc.get_objects():
-                if is_env_object(obj): env = obj; break
-            if env is not None and env.map is not None:
-                walls = set(env.map.walls); bricks = set(env.map.bricks)
-                width = env.map.width; height = env.map.height
-            else:
-                walls = set(map(tuple, state.get("walls",[]))); bricks = set(map(tuple, state.get("bricks",[])))
-                width = state.get("width",15); height = state.get("height",13)
-        except Exception:
-            walls = set(map(tuple, state.get("walls",[]))); bricks = set(map(tuple, state.get("bricks",[])))
-            width = state.get("width",15); height = state.get("height",13)
-    if player_pos is None: player_pos = (1,1)
-    enemies = []
-    raw = state.get("enemies") or state.get("enemy_positions")
-    if raw:
-        for e in raw:
-            if isinstance(e, dict): enemies.append((e.get('x'),e.get('y')))
-            elif isinstance(e, (list,tuple)): enemies.append((e[0],e[1]))
-            else: enemies.append((e.x,e.y))
-    bombs = []
-    raw = state.get("bombs") or state.get("bomb_positions")
-    if raw:
-        for b in raw:
-            if isinstance(b, dict): bombs.append((b.get('x'),b.get('y'),b.get('timer',4)))
-            elif isinstance(b, (list,tuple)): bombs.append((b[0],b[1],b[2] if len(b)>=3 else 4))
-            else: bombs.append((b.x,b.y,b.timer))
-    explosions = set()
-    for exp in state.get("explosions",[]):
-        if isinstance(exp,(list,tuple)): explosions.add((exp[0],exp[1]))
-        elif isinstance(exp,dict): explosions.add((exp.get('x'),exp.get('y')))
-    items = {}
-    raw = state.get("items",{})
-    if isinstance(raw,dict):
-        for k,v in raw.items():
-            if isinstance(k,(list,tuple)): items[tuple(k)] = v
-    return {
-        "player_pos": player_pos, "walls": walls, "bricks": bricks, "enemies": enemies,
-        "bombs": bombs, "explosions": explosions, "items": items,
-        "ammo": state.get("ammo",1), "blast_radius": state.get("blast_radius",2),
-        "width": width, "height": height
-    }
-
-
-def get_hazard_zones(bombs, walls, bricks, blast_radius, width, height) -> Dict:
-    hazard = {}
-    for bx,by,timer in bombs:
-        if (bx,by) not in hazard or timer<hazard[(bx,by)]: hazard[(bx,by)] = timer
-        for dx,dy in [(1,0),(-1,0),(0,1),(0,-1)]:
-            for dist in range(1,blast_radius+1):
-                tx,ty = bx+dx*dist, by+dy*dist
-                if not (0<=tx<width and 0<=ty<height): break
-                if (tx,ty) in walls: break
-                if (tx,ty) not in hazard or timer<hazard[(tx,ty)]: hazard[(tx,ty)] = timer
-                if (tx,ty) in bricks: break
-    return hazard
-
-
-def bfs_escape(start, walls, bricks, bombs, explosions, hazard_zones, width, height) -> str:
-    bomb_positions = {(bx,by) for bx,by,_ in bombs}
-    queue = deque([(start,[])])
-    visited = {start}
-    while queue:
-        (cx,cy), path = queue.popleft()
-        if (cx,cy) not in hazard_zones and (cx,cy) not in explosions:
-            return path[0] if path else "WAIT"
-        for dx,dy,action in [(0,-1,"UP"),(0,1,"DOWN"),(-1,0,"LEFT"),(1,0,"RIGHT")]:
-            nx,ny = cx+dx,cy+dy
-            if not (0<=nx<width and 0<=ny<height): continue
-            if (nx,ny) in walls or (nx,ny) in bricks: continue
-            if (nx,ny) in bomb_positions and (nx,ny) != start: continue
-            if (nx,ny) in explosions: continue
-            if (nx,ny) not in visited:
-                visited.add((nx,ny)); queue.append(((nx,ny), path+[action]))
-    return "WAIT"
-
-
-def count_conflicts(pos, hazard_zones, explosions, enemies, walls, bricks,
-                    bomb_positions, width, height) -> int:
+def get_conflicts_and_state(assignment: List[str], root_state: dict) -> Tuple[float, dict]:
     """
-    Count the number of CONSTRAINTS violated by placing the agent at `pos`.
-    
-    CSP Constraints:
-    1. Must not be in active explosion (hard)
-    2. Must not be on a wall or brick (hard)
-    3. Must not be at enemy position (hard)
-    4. Should not be in bomb hazard zone (soft - weighted by urgency)
-    5. Must not be on bomb (hard)
-    6. Should be reachable (soft)
+    Simulate the action assignment path and calculate the total number of conflicts.
+    Also returns the final simulated state.
     """
-    conflicts = 0
-    px, py = pos
+    current_state = root_state
+    total_conflicts = 0.0
 
-    # Hard constraints
-    if pos in explosions: conflicts += 1000
-    if pos in walls or pos in bricks: conflicts += 1000
-    if any(px==ex and py==ey for ex,ey in enemies): conflicts += 1000
-    if pos in bomb_positions: conflicts += 500
+    for idx, action in enumerate(assignment):
+        # Resolve to WAIT if the action is physically impossible, counting as a conflict
+        valid_actions = get_valid_actions_for_mc(current_state)
+        resolved_action = action
+        if action not in valid_actions:
+            total_conflicts += 10.0
+            resolved_action = "WAIT"
 
-    # Soft constraint: hazard zone
-    if pos in hazard_zones:
-        timer = hazard_zones[pos]
-        conflicts += max(0, (4 - timer)) * 50  # More urgent = more conflicts
+        next_state = simulate_state(current_state, resolved_action)
+        px, py = next_state["player_pos"]
 
-    # Boundary check
-    if not (0 <= px < width and 0 <= py < height):
-        conflicts += 1000
+        # Safety conflicts at the simulated step
+        if (px, py) in next_state["explosions"]:
+            total_conflicts += 10.0
 
-    return conflicts
+        hazard_zones = next_state.get("hazard_zones", {})
+        if (px, py) in hazard_zones:
+            timer = hazard_zones[(px, py)]
+            if timer <= 1:
+                total_conflicts += 10.0
 
+        # Enemy collision conflict
+        for ex, ey in next_state["enemies"]:
+            if px == ex and py == ey:
+                total_conflicts += 10.0
 
-def strategic_value(pos, enemies, items, bricks, ammo, width, height) -> float:
-    """How strategically valuable is this position (negative = we want to minimize conflicts)."""
-    px, py = pos
-    value = 0.0
+        current_state = next_state
 
-    for ix, iy in items.keys():
-        dist = abs(px-ix)+abs(py-iy)
-        value += 500.0/(dist+1)
-
-    for ex, ey in enemies:
-        dist = abs(px-ex)+abs(py-ey)
-        if ammo > 0: value += 300.0/(dist+1)
-        else: value -= 200.0/(dist+1)
-
-    for bx, by in bricks:
-        if abs(px-bx)+abs(py-by) == 1:
-            value += 80.0
-
-    return value
-
+    return total_conflicts, current_state
 
 class MinConflictsAgent(BaseAgent):
     """
-    Min-Conflicts Agent (CSP approach).
-    
-    Models the Bomberman navigation as a Constraint Satisfaction Problem:
-    - Variable: player's next position
-    - Domain: all reachable adjacent positions
-    - Constraints: avoid explosions, hazard zones, walls, enemies
-    
-    At each step, selects the action (position) that MINIMIZES violated constraints.
-    When conflicts are equal, uses strategic value as tiebreaker.
-    Naturally handles multiple competing objectives as constraint weights.
+    Min-Conflicts Agent.
+    Formulates Bomberman path planning as a CSP with 4 variables (actions for 4 steps).
+    Uses Min-Conflicts local search to resolve conflicts, breaking ties with state evaluation.
     """
 
+    def __init__(self, max_depth: int = 4, max_steps: int = 100):
+        self.max_depth = max_depth
+        self.max_steps = max_steps
+
     def choose_action(self, state: dict) -> str:
-        info = parse_state(state)
-        px, py = info["player_pos"]
-        walls = info["walls"]; bricks = info["bricks"]
-        bombs = info["bombs"]; explosions = info["explosions"]
-        enemies = info["enemies"]; items = info["items"]
-        ammo = info["ammo"]; blast_radius = info["blast_radius"]
-        width = info["width"]; height = info["height"]
+        state_info = parse_state(state)
+        
+        # Domain of actions
+        domain = ["WAIT", "UP", "DOWN", "LEFT", "RIGHT", "BOMB"]
 
-        hazard_zones = get_hazard_zones(bombs, walls, bricks, blast_radius, width, height)
-        bomb_positions = {(bx,by) for bx,by,_ in bombs}
+        # Initial assignment: random physically valid path
+        assignment = []
+        curr = state_info
+        for _ in range(self.max_depth):
+            val_acts = get_valid_actions_for_mc(curr)
+            act = random.choice(val_acts)
+            assignment.append(act)
+            curr = simulate_state(curr, act)
+        
+        best_assignment = list(assignment)
+        best_conflicts, final_state = get_conflicts_and_state(assignment, state_info)
+        best_score = evaluate_state(final_state)
 
-        # Hard override: escape
-        if (px,py) in hazard_zones or (px,py) in explosions:
-            return bfs_escape((px,py), walls, bricks, bombs, explosions, hazard_zones, width, height)
+        for step in range(self.max_steps):
+            # Identify conflicted variables (steps where a conflict occurs)
+            conflicted_vars = []
+            current = state_info
+            for i, action in enumerate(assignment):
+                # Check physical consistency
+                valid_acts = get_valid_actions_for_mc(current)
+                resolved_act = action
+                if action not in valid_acts:
+                    conflicted_vars.append(i)
+                    resolved_act = "WAIT"
+                
+                next_st = simulate_state(current, resolved_act)
+                px, py = next_st["player_pos"]
+                
+                step_conflict = False
+                if (px, py) in next_st["explosions"]:
+                    step_conflict = True
+                elif (px, py) in next_st.get("hazard_zones", {}) and next_st["hazard_zones"][(px, py)] <= 1:
+                    step_conflict = True
+                
+                if step_conflict:
+                    conflicted_vars.append(i)
+                current = next_st
 
-        # Bomb placement
-        if ammo > 0 and (px,py) not in bomb_positions:
-            near_target = any(
-                (px+dx,py+dy) in bricks or any((px+dx)==ex and (py+dy)==ey for ex,ey in enemies)
-                for dx,dy in [(1,0),(-1,0),(0,1),(0,-1)]
-            )
-            if near_target:
-                sim_bombs = bombs + [(px,py,4)]
-                sim_hazard = get_hazard_zones(sim_bombs, walls, bricks, blast_radius, width, height)
-                if bfs_escape((px,py), walls, bricks, sim_bombs, explosions, sim_hazard, width, height) != "WAIT":
-                    return "BOMB"
+            if not conflicted_vars:
+                # If no steps have conflicts, pick any variable at random to try and find higher score
+                conflicted_vars = list(range(self.max_depth))
 
-        # Generate candidate positions (domain of the variable)
-        # Domain includes: current position (WAIT) + 4 neighbors
-        candidates = []
-        moves = [("WAIT",0,0),("UP",0,-1),("DOWN",0,1),("LEFT",-1,0),("RIGHT",1,0)]
+            # Select a conflicted variable at random
+            var_idx = random.choice(conflicted_vars)
 
-        for action, dx, dy in moves:
-            nx, ny = px+dx, py+dy
-            if action == "WAIT": nx, ny = px, py
-            if not (0<=nx<width and 0<=ny<height): continue
-            if (nx,ny) in walls or (nx,ny) in bricks: continue
-            if (nx,ny) in bomb_positions and (nx,ny) != (px,py): continue
+            # Find the value (action) that minimizes conflicts (break ties with evaluate_state score)
+            best_val = assignment[var_idx]
+            min_c = float('inf')
+            max_s = -float('inf')
 
-            # Count constraint violations for this position
-            conflicts = count_conflicts(
-                (nx,ny), hazard_zones, explosions, enemies,
-                walls, bricks, bomb_positions, width, height
-            )
+            # Shuffle domain to avoid directional bias
+            random_domain = list(domain)
+            random.shuffle(random_domain)
 
-            # Strategic value as tiebreaker (higher is better)
-            value = strategic_value((nx,ny), enemies, items, bricks, ammo, width, height)
+            for val in random_domain:
+                assignment[var_idx] = val
+                c, final_st = get_conflicts_and_state(assignment, state_info)
+                s = evaluate_state(final_st)
+                
+                if c < min_c:
+                    min_c = c
+                    max_s = s
+                    best_val = val
+                elif c == min_c and s > max_s:
+                    max_s = s
+                    best_val = val
 
-            candidates.append((conflicts, -value, action))  # minimize conflicts, maximize value
+            # Reassign
+            assignment[var_idx] = best_val
 
-        if not candidates:
-            return "WAIT"
+            # Keep track of the globally best assignment seen
+            current_conflicts, final_st = get_conflicts_and_state(assignment, state_info)
+            current_score = evaluate_state(final_st)
 
-        # Sort: first by conflicts (ascending), then by -value (descending strategic value)
-        candidates.sort(key=lambda x: (x[0], x[1]))
+            if current_conflicts < best_conflicts:
+                best_conflicts = current_conflicts
+                best_score = current_score
+                best_assignment = list(assignment)
+            elif current_conflicts == best_conflicts and current_score > best_score:
+                best_score = current_score
+                best_assignment = list(assignment)
 
-        # Min-conflicts: pick the candidate with fewest violations
-        best_conflicts = candidates[0][0]
-        tied = [c for c in candidates if c[0] == best_conflicts]
-
-        # Among ties, pick highest strategic value
-        _, _, best_action = min(tied, key=lambda x: x[1])
-
-        return best_action
+        # Make sure we return a physically valid action as fallback
+        root_valid = get_valid_actions_for_mc(state_info)
+        final_action = best_assignment[0]
+        if final_action not in root_valid:
+            final_action = "WAIT"
+            
+        return final_action

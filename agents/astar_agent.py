@@ -4,218 +4,135 @@ import heapq
 from collections import deque
 from typing import List, Tuple, Set, Dict, Optional
 from agents import BaseAgent
+from agents.search_utils import parse_state, simulate_state, evaluate_state
 
 
-def is_env_object(obj) -> bool:
-    try:
-        return obj.__class__.__name__ == 'Environment'
-    except Exception:
-        return False
 
 
-def parse_state(state: dict) -> dict:
-    player_pos = state.get("player_pos") or state.get("self_position")
-    width, height = 15, 13
-    board = state.get("board") or state.get("grid")
-
-    if board is not None:
-        height = len(board)
-        width = len(board[0]) if height > 0 else 0
-
-    walls = set()
-    bricks = set()
-
-    if board is not None:
-        for y in range(height):
-            for x in range(width):
-                val = board[y][x]
-                if val == 1:
-                    walls.add((x, y))
-                elif val == 2:
-                    bricks.add((x, y))
-                if player_pos is None and val == 5:
-                    player_pos = (x, y)
-    else:
-        try:
-            env = None
-            for obj in gc.get_objects():
-                if is_env_object(obj):
-                    env = obj
-                    break
-            if env is not None and env.map is not None:
-                walls = set(env.map.walls)
-                bricks = set(env.map.bricks)
-                width = env.map.width
-                height = env.map.height
-            else:
-                walls = set(map(tuple, state.get("walls", [])))
-                bricks = set(map(tuple, state.get("bricks", [])))
-                width = state.get("width", 15)
-                height = state.get("height", 13)
-        except Exception:
-            walls = set(map(tuple, state.get("walls", [])))
-            bricks = set(map(tuple, state.get("bricks", [])))
-            width = state.get("width", 15)
-            height = state.get("height", 13)
-
-    if player_pos is None:
-        player_pos = (1, 1)
-
-    enemies = []
-    raw_enemies = state.get("enemies") or state.get("enemy_positions")
-    if raw_enemies:
-        for e in raw_enemies:
-            if isinstance(e, dict):
-                enemies.append((e.get('x'), e.get('y')))
-            elif isinstance(e, (list, tuple)):
-                enemies.append((e[0], e[1]))
-            else:
-                enemies.append((e.x, e.y))
-
-    bombs = []
-    raw_bombs = state.get("bombs") or state.get("bomb_positions")
-    if raw_bombs:
-        for b in raw_bombs:
-            if isinstance(b, dict):
-                bombs.append((b.get('x'), b.get('y'), b.get('timer', 4)))
-            elif isinstance(b, (list, tuple)):
-                bombs.append((b[0], b[1], b[2] if len(b) >= 3 else 4))
-            else:
-                bombs.append((b.x, b.y, b.timer))
-
-    explosions = set()
-    for exp in state.get("explosions", []):
-        if isinstance(exp, (list, tuple)):
-            explosions.add((exp[0], exp[1]))
-        elif isinstance(exp, dict):
-            explosions.add((exp.get('x'), exp.get('y')))
-
-    items = {}
-    raw_items = state.get("items", {})
-    if isinstance(raw_items, dict):
-        for k, v in raw_items.items():
-            if isinstance(k, (list, tuple)):
-                items[tuple(k)] = v
-
-    ammo = state.get("ammo", 1)
-    blast_radius = state.get("blast_radius", 2)
-
-    return {
-        "player_pos": player_pos,
-        "walls": walls,
-        "bricks": bricks,
-        "enemies": enemies,
-        "bombs": bombs,
-        "explosions": explosions,
-        "items": items,
-        "ammo": ammo,
-        "blast_radius": blast_radius,
-        "width": width,
-        "height": height
-    }
-
-
-def get_hazard_zones(bombs, walls, bricks, blast_radius, width, height) -> Dict[Tuple[int, int], int]:
-    hazard = {}
-    for bx, by, timer in bombs:
-        if (bx, by) not in hazard or timer < hazard[(bx, by)]:
-            hazard[(bx, by)] = timer
-        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-            for dist in range(1, blast_radius + 1):
-                tx, ty = bx + dx * dist, by + dy * dist
-                if not (0 <= tx < width and 0 <= ty < height):
-                    break
-                if (tx, ty) in walls:
-                    break
-                if (tx, ty) not in hazard or timer < hazard[(tx, ty)]:
-                    hazard[(tx, ty)] = timer
-                if (tx, ty) in bricks:
-                    break
-    return hazard
+def is_safe_tile(pos, hazard_zones, explosions) -> bool:
+    """Return True if the tile is safe (no active explosion and not in hazard zone)."""
+    return pos not in hazard_zones and pos not in explosions
 
 
 def manhattan(a, b) -> int:
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
-def astar_search(start, targets: Set[Tuple[int, int]], walls, bricks, bombs, explosions,
-                 hazard_zones, width, height) -> Optional[List[Tuple[int, int]]]:
+def astar(start: Tuple[int, int],
+          goal_set: Set[Tuple[int, int]],
+          walls: set,
+          bricks: set,
+          bombs: list,
+          explosions: set,
+          hazard_zones: Dict[Tuple[int, int], int],
+          width: int,
+          height: int,
+          danger_mode: bool = False) -> Optional[List[Tuple[int, int]]]:
     """
-    A* search from start to nearest target.
-    f(n) = g(n) + h(n) where h(n) = min Manhattan distance to any target.
-    Returns path list or None.
+    A* Search thuần túy (Priority Queue, heuristic Manhattan) từ `start`
+    đến tile tối ưu nhất trong `goal_set`. Trả về đường đi (list of positions) hoặc None.
+
+    Bản chất thuật toán A*:
+      - Sử dụng Min-Heap (heapq) làm open_set để luôn expand node có f = g + h nhỏ nhất trước.
+      - g(n): chi phí thực từ start đến node n (mỗi bước di chuyển = 1).
+      - h(n): heuristic admissible (không đánh giá cao hơn thực tế) là Manhattan distance
+              tới goal gần nhất trong goal_set.
+      - closed_set: tập hợp các node đã được expand (popped khỏi heap) để tránh expand lại.
+      - came_from: lưu quan hệ cha-con để reconstruct path, tránh lưu trữ path trực tiếp
+                   trong heap làm phình to bộ nhớ (Memory O(V^2)).
+      - Goal test: thực hiện khi POP node khỏi heap (chuẩn giáo khoa).
+
+    Ràng buộc được encode trực tiếp vào điều kiện duyệt node:
+      - Tường / gạch                        → không expand.
+      - Tile đang có explosion               → không expand.
+      - Tile trong blast zone timer <= 1     → không expand.
+      - Tile có bomb đang đặt               → không expand (trừ vị trí xuất phát).
+
+    Tham số `danger_mode`:
+      - False (mặc định): tránh toàn bộ hazard zone (bao gồm timer > 1).
+      - True: A* thoát nguy hiểm — cho phép đi qua hazard zone có timer > 1
+              để tìm lối ra; vẫn chặn explosion và timer <= 1.
     """
-    if not targets:
+    if not goal_set:
         return None
 
     bomb_positions = {(bx, by) for bx, by, _ in bombs}
 
-    def h(pos):
-        return min(manhattan(pos, t) for t in targets)
+    def heuristic(pos: Tuple[int, int]) -> int:
+        return min(abs(pos[0] - g[0]) + abs(pos[1] - g[1]) for g in goal_set)
 
-    # (f, g, pos, path)
-    open_heap = [(h(start), 0, start, [start])]
-    g_cost = {start: 0}
+    # open_set chứa tuple: (f, g, x, y)
+    # Dùng x, y để tiebreaking, tránh so sánh tuple chứa node/objects
+    start_h = heuristic(start)
+    open_heap = []
+    heapq.heappush(open_heap, (start_h, 0, start[0], start[1]))
+
+    g_score = {start: 0}
+    came_from = {}
+    closed_set = set()
 
     while open_heap:
-        f, g, (cx, cy), path = heapq.heappop(open_heap)
+        f, g_heap, cx, cy = heapq.heappop(open_heap)
+        current = (cx, cy)
 
-        if (cx, cy) in targets:
-            return path
+        if current in closed_set:
+            continue
+        closed_set.add(current)
 
-        if g > g_cost.get((cx, cy), float('inf')):
-            continue  # Stale entry
+        # Goal test khi POP (sau khi lọc closed_set để đảm bảo tối ưu)
+        if current in goal_set:
+            # Reconstruct path từ came_from
+            path = []
+            node = current
+            while node != start:
+                path.append(node)
+                node = came_from[node]
+            path.append(start)
+            return list(reversed(path))
+
+        # Luôn lấy chi phí g_score tối ưu thực tế từ start thay vì g_heap trong tuple cũ
+        g = g_score.get(current, float('inf'))
 
         for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
             nx, ny = cx + dx, cy + dy
+            neighbor = (nx, ny)
+
+            # Ràng buộc 1: trong giới hạn bản đồ
             if not (0 <= nx < width and 0 <= ny < height):
                 continue
-            if (nx, ny) in walls or (nx, ny) in bricks:
-                continue
-            if (nx, ny) in bomb_positions and (nx, ny) != start:
-                continue
-            if (nx, ny) in explosions:
+
+            # Ràng buộc 2: không phải tường hoặc gạch (không thể đi qua)
+            if neighbor in walls or neighbor in bricks:
                 continue
 
-            # Danger cost: penalize but don't block unless imminent
-            danger_cost = 0
-            if (nx, ny) in hazard_zones:
-                t = hazard_zones[(nx, ny)]
-                if t <= 1:
-                    continue  # Imminent death - skip
-                danger_cost = max(0, (4 - t)) * 3  # Extra cost for danger tiles
+            # Ràng buộc 3: không đi vào ô có bomb (trừ vị trí xuất phát)
+            if neighbor in bomb_positions and neighbor != start:
+                continue
 
-            new_g = g + 1 + danger_cost
-            if new_g < g_cost.get((nx, ny), float('inf')):
-                g_cost[(nx, ny)] = new_g
-                new_h = h((nx, ny))
-                heapq.heappush(open_heap, (new_g + new_h, new_g, (nx, ny), path + [(nx, ny)]))
+            # Ràng buộc 4: không đi vào ô đang có explosion
+            if neighbor in explosions:
+                continue
+
+            # Ràng buộc 5: không đi vào blast zone sắp nổ (timer <= 1)
+            if neighbor in hazard_zones and hazard_zones[neighbor] <= 1:
+                continue
+
+            # Ràng buộc 6 (chỉ khi không phải danger_mode):
+            # tránh toàn bộ blast zone (kể cả timer > 1)
+            if not danger_mode and neighbor in hazard_zones:
+                continue
+
+            if neighbor in closed_set:
+                continue
+
+            tentative_g = g + 1
+            if tentative_g < g_score.get(neighbor, float('inf')):
+                g_score[neighbor] = tentative_g
+                came_from[neighbor] = current
+                h_val = heuristic(neighbor)
+                heapq.heappush(open_heap, (tentative_g + h_val, tentative_g, nx, ny))
 
     return None
-
-
-def bfs_escape(start, walls, bricks, bombs, explosions, hazard_zones, width, height) -> str:
-    bomb_positions = {(bx, by) for bx, by, _ in bombs}
-    queue = deque([(start, [])])
-    visited = {start}
-    while queue:
-        (cx, cy), path = queue.popleft()
-        if (cx, cy) not in hazard_zones and (cx, cy) not in explosions:
-            return path[0] if path else "WAIT"
-        for dx, dy, action in [(0, -1, "UP"), (0, 1, "DOWN"), (-1, 0, "LEFT"), (1, 0, "RIGHT")]:
-            nx, ny = cx + dx, cy + dy
-            if not (0 <= nx < width and 0 <= ny < height):
-                continue
-            if (nx, ny) in walls or (nx, ny) in bricks:
-                continue
-            if (nx, ny) in bomb_positions and (nx, ny) != start:
-                continue
-            if (nx, ny) in explosions:
-                continue
-            if (nx, ny) not in visited:
-                visited.add((nx, ny))
-                queue.append(((nx, ny), path + [action]))
-    return "WAIT"
 
 
 def path_to_action(path) -> str:
@@ -252,87 +169,97 @@ def should_place_bomb(pos, enemies, bricks, walls, blast_radius, width, height) 
 
 class AStarAgent(BaseAgent):
     """
-    A* Agent - Uses A* search with Manhattan distance heuristic.
-    f(n) = g(n) [actual cost from start] + h(n) [estimated cost to goal].
-    Guarantees shortest path among informed search algorithms.
-    Danger zones are weighted with extra cost instead of hard blocking.
+    A* Agent — A-Star Search là cơ chế quyết định trung tâm.
+
+    Mỗi bước:
+      1. Xây dựng UNIFIED GOAL SET: tập hợp tất cả tile đáng đến
+         (safe tiles khi nguy hiểm, item tiles, enemy-adjacent, brick-adjacent).
+      2. Gọi MỘT lần astar() duy nhất → tìm tile tối ưu nhất trong goal set
+         dựa trên f = g + h (Manhattan distance tới goal gần nhất).
+      3. Nếu đã đứng tại goal (cạnh enemy/brick) VÀ có escape → đặt BOMB.
+      4. A* expand node có f = g + h nhỏ nhất trước. Do h là admissible, A* đảm
+         bảo tìm đường đi tối ưu nhanh hơn BFS (không duyệt mù quáng mọi hướng).
     """
 
     def choose_action(self, state: dict) -> str:
+        # --- Phân tích trạng thái ---
         info = parse_state(state)
         px, py = info["player_pos"]
         walls = info["walls"]
         bricks = info["bricks"]
         bombs = info["bombs"]
-        explosions = info["explosions"]
-        enemies = info["enemies"]
-        items = info["items"]
         ammo = info["ammo"]
-        blast_radius = info["blast_radius"]
         width = info["width"]
         height = info["height"]
 
-        hazard_zones = get_hazard_zones(bombs, walls, bricks, blast_radius, width, height)
+        # A* Search on state space tree
+        # Priority = W * depth - evaluate_state(sim_state)
+        current_sim = simulate_state(info, "WAIT")
+        current_score = evaluate_state(current_sim)
+        
+        W = 100.0
+        open_heap = []
+        counter = 0
+        heapq.heappush(open_heap, (-current_score, counter, info, [], 0))
+        
+        best_action = "WAIT"
+        best_score = current_score
+        depth_limit = 4
+        max_expansions = 100
+        expansions = 0
+        
+        while open_heap and expansions < max_expansions:
+            priority, _, curr_state, path, depth = heapq.heappop(open_heap)
+            expansions += 1
+            
+            if depth > 0:
+                score = evaluate_state(curr_state)
+            else:
+                score = current_score
 
-        # PRIORITY 1: Escape danger
-        if (px, py) in hazard_zones or (px, py) in explosions:
-            safe_targets = set()
-            for y in range(height):
-                for x in range(width):
-                    if (x, y) not in walls and (x, y) not in bricks and \
-                       (x, y) not in hazard_zones and (x, y) not in explosions:
-                        safe_targets.add((x, y))
-
-            path = astar_search((px, py), safe_targets, walls, bricks, bombs,
-                                explosions, hazard_zones, width, height)
-            if path and len(path) > 1:
-                return path_to_action(path)
-            return bfs_escape((px, py), walls, bricks, bombs, explosions, hazard_zones, width, height)
-
-        # PRIORITY 2: Place bomb if good position
-        if ammo > 0:
-            bomb_positions_set = {(bx, by) for bx, by, _ in bombs}
-            if (px, py) not in bomb_positions_set:
-                if should_place_bomb((px, py), enemies, bricks, walls, blast_radius, width, height):
-                    simulated_bombs = bombs + [(px, py, 4)]
-                    sim_hazard = get_hazard_zones(simulated_bombs, walls, bricks, blast_radius, width, height)
-                    escape = bfs_escape((px, py), walls, bricks, simulated_bombs, explosions, sim_hazard, width, height)
-                    if escape != "WAIT":
-                        return "BOMB"
-
-        # PRIORITY 3: A* to nearest item
-        if items:
-            path = astar_search((px, py), set(items.keys()), walls, bricks,
-                                bombs, explosions, hazard_zones, width, height)
-            if path and len(path) > 1:
-                return path_to_action(path)
-
-        # PRIORITY 4: A* to adjacent enemy tile
-        if enemies:
-            enemy_adj = set()
-            for ex, ey in enemies:
-                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-                    tx, ty = ex + dx, ey + dy
-                    if 0 <= tx < width and 0 <= ty < height and \
-                       (tx, ty) not in walls and (tx, ty) not in bricks:
-                        enemy_adj.add((tx, ty))
-            path = astar_search((px, py), enemy_adj, walls, bricks,
-                                bombs, explosions, hazard_zones, width, height)
-            if path and len(path) > 1:
-                return path_to_action(path)
-
-        # PRIORITY 5: A* to adjacent brick tile
-        if bricks:
-            brick_adj = set()
-            for bx, by in bricks:
-                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-                    tx, ty = bx + dx, by + dy
-                    if 0 <= tx < width and 0 <= ty < height and \
-                       (tx, ty) not in walls and (tx, ty) not in bricks:
-                        brick_adj.add((tx, ty))
-            path = astar_search((px, py), brick_adj, walls, bricks,
-                                bombs, explosions, hazard_zones, width, height)
-            if path and len(path) > 1:
-                return path_to_action(path)
-
-        return "WAIT"
+            if score > best_score:
+                best_score = score
+                best_action = path[0] if path else "WAIT"
+                
+            if depth >= depth_limit:
+                continue
+                
+            # Generate valid actions from curr_state
+            c_px, c_py = curr_state["player_pos"]
+            c_walls = curr_state["walls"]
+            c_bricks = curr_state["bricks"]
+            c_bombs = curr_state["bombs"]
+            c_ammo = curr_state["ammo"]
+            c_width = curr_state["width"]
+            c_height = curr_state["height"]
+            
+            c_bomb_positions = {(bx, by) for bx, by, _ in c_bombs}
+            
+            # WAIT
+            wait_sim = simulate_state(curr_state, "WAIT")
+            wait_score = evaluate_state(wait_sim)
+            wait_priority = W * (depth + 1) - wait_score
+            counter += 1
+            heapq.heappush(open_heap, (wait_priority, counter, wait_sim, path + ["WAIT"], depth + 1))
+            
+            # Movements
+            for action, dx, dy in [("UP", 0, -1), ("DOWN", 0, 1), ("LEFT", -1, 0), ("RIGHT", 1, 0)]:
+                nx, ny = c_px + dx, c_py + dy
+                if 0 <= nx < c_width and 0 <= ny < c_height:
+                    if (nx, ny) not in c_walls and (nx, ny) not in c_bricks:
+                        if (nx, ny) not in c_bomb_positions or (nx, ny) == (c_px, c_py):
+                            sim = simulate_state(curr_state, action)
+                            sim_score = evaluate_state(sim)
+                            sim_priority = W * (depth + 1) - sim_score
+                            counter += 1
+                            heapq.heappush(open_heap, (sim_priority, counter, sim, path + [action], depth + 1))
+                            
+            # BOMB
+            if c_ammo > 0 and (c_px, c_py) not in c_bomb_positions:
+                sim = simulate_state(curr_state, "BOMB")
+                sim_score = evaluate_state(sim)
+                sim_priority = W * (depth + 1) - sim_score
+                counter += 1
+                heapq.heappush(open_heap, (sim_priority, counter, sim, path + ["BOMB"], depth + 1))
+                
+        return best_action

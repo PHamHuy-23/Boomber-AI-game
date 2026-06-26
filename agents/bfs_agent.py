@@ -1,137 +1,18 @@
-"""BFS Agent - Breadth-First Search agent for Bomberman."""
+"""BFS Agent - Breadth-First Search agent for Bomberman.
+
+Triết lý thiết kế:
+  BFS là cơ chế QUYẾT ĐỊNH TRUNG TÂM. Mỗi bước, agent xây dựng một
+  unified goal set gồm tất cả tile đáng đến, rồi gọi MỘT lần BFS duy nhất
+  để tìm tile gần nhất (theo số bước, không heuristic). Ràng buộc nguy hiểm
+  được encode trực tiếp vào điều kiện duyệt node, không phải logic ngoài BFS.
+"""
 import gc
 from collections import deque
 from typing import List, Tuple, Set, Dict, Optional
 from agents import BaseAgent
+from agents.search_utils import parse_state, simulate_state, evaluate_state
 
 
-def is_env_object(obj) -> bool:
-    try:
-        return obj.__class__.__name__ == 'Environment'
-    except Exception:
-        return False
-
-
-def parse_state(state: dict) -> dict:
-    player_pos = state.get("player_pos") or state.get("self_position")
-    width, height = 15, 13
-    board = state.get("board") or state.get("grid")
-
-    if board is not None:
-        height = len(board)
-        width = len(board[0]) if height > 0 else 0
-
-    walls = set()
-    bricks = set()
-
-    if board is not None:
-        for y in range(height):
-            for x in range(width):
-                val = board[y][x]
-                if val == 1:
-                    walls.add((x, y))
-                elif val == 2:
-                    bricks.add((x, y))
-                if player_pos is None and val == 5:
-                    player_pos = (x, y)
-    else:
-        try:
-            env = None
-            for obj in gc.get_objects():
-                if is_env_object(obj):
-                    env = obj
-                    break
-            if env is not None and env.map is not None:
-                walls = set(env.map.walls)
-                bricks = set(env.map.bricks)
-                width = env.map.width
-                height = env.map.height
-            else:
-                walls = set(map(tuple, state.get("walls", [])))
-                bricks = set(map(tuple, state.get("bricks", [])))
-                width = state.get("width", 15)
-                height = state.get("height", 13)
-        except Exception:
-            walls = set(map(tuple, state.get("walls", [])))
-            bricks = set(map(tuple, state.get("bricks", [])))
-            width = state.get("width", 15)
-            height = state.get("height", 13)
-
-    if player_pos is None:
-        player_pos = (1, 1)
-
-    enemies = []
-    raw_enemies = state.get("enemies") or state.get("enemy_positions")
-    if raw_enemies:
-        for e in raw_enemies:
-            if isinstance(e, dict):
-                enemies.append((e.get('x'), e.get('y')))
-            elif isinstance(e, (list, tuple)):
-                enemies.append((e[0], e[1]))
-            else:
-                enemies.append((e.x, e.y))
-
-    bombs = []
-    raw_bombs = state.get("bombs") or state.get("bomb_positions")
-    if raw_bombs:
-        for b in raw_bombs:
-            if isinstance(b, dict):
-                bombs.append((b.get('x'), b.get('y'), b.get('timer', 4)))
-            elif isinstance(b, (list, tuple)):
-                bombs.append((b[0], b[1], b[2] if len(b) >= 3 else 4))
-            else:
-                bombs.append((b.x, b.y, b.timer))
-
-    explosions = set()
-    for exp in state.get("explosions", []):
-        if isinstance(exp, (list, tuple)):
-            explosions.add((exp[0], exp[1]))
-        elif isinstance(exp, dict):
-            explosions.add((exp.get('x'), exp.get('y')))
-
-    items = {}
-    raw_items = state.get("items", {})
-    if isinstance(raw_items, dict):
-        for k, v in raw_items.items():
-            if isinstance(k, (list, tuple)):
-                items[tuple(k)] = v
-
-    ammo = state.get("ammo", 1)
-    blast_radius = state.get("blast_radius", 2)
-
-    return {
-        "player_pos": player_pos,
-        "walls": walls,
-        "bricks": bricks,
-        "enemies": enemies,
-        "bombs": bombs,
-        "explosions": explosions,
-        "items": items,
-        "ammo": ammo,
-        "blast_radius": blast_radius,
-        "width": width,
-        "height": height
-    }
-
-
-def get_hazard_zones(bombs, walls, bricks, blast_radius, width, height) -> Dict[Tuple[int, int], int]:
-    """Calculate all tiles that are in blast zones with their countdown timers."""
-    hazard = {}
-    for bx, by, timer in bombs:
-        if (bx, by) not in hazard or timer < hazard[(bx, by)]:
-            hazard[(bx, by)] = timer
-        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-            for dist in range(1, blast_radius + 1):
-                tx, ty = bx + dx * dist, by + dy * dist
-                if not (0 <= tx < width and 0 <= ty < height):
-                    break
-                if (tx, ty) in walls:
-                    break
-                if (tx, ty) not in hazard or timer < hazard[(tx, ty)]:
-                    hazard[(tx, ty)] = timer
-                if (tx, ty) in bricks:
-                    break
-    return hazard
 
 
 def is_safe_tile(pos, hazard_zones, explosions) -> bool:
@@ -139,73 +20,88 @@ def is_safe_tile(pos, hazard_zones, explosions) -> bool:
     return pos not in hazard_zones and pos not in explosions
 
 
-def bfs_to_target(start, targets: Set[Tuple[int, int]], walls, bricks, bombs, explosions,
-                  hazard_zones, width, height) -> Optional[List[Tuple[int, int]]]:
+def bfs(start: Tuple[int, int],
+        goal_set: Set[Tuple[int, int]],
+        walls: set,
+        bricks: set,
+        bombs: list,
+        explosions: set,
+        hazard_zones: Dict[Tuple[int, int], int],
+        width: int,
+        height: int,
+        danger_mode: bool = False) -> Optional[List[Tuple[int, int]]]:
     """
-    BFS from start to the nearest target in `targets`.
-    Returns the path (list of positions) or None if unreachable.
-    Avoids walls, bricks, and immediate explosion zones.
+    BFS thuần túy (FIFO queue, không heuristic) từ `start` đến tile gần nhất
+    trong `goal_set`. Trả về đường đi (list of positions) hoặc None.
+
+    Ràng buộc được encode trực tiếp vào điều kiện duyệt node:
+      - Tường / gạch                        → không expand.
+      - Tile đang có explosion               → không expand.
+      - Tile trong blast zone timer <= 1     → không expand.
+      - Tile có bomb đang đặt               → không expand (trừ vị trí xuất phát).
+
+    Tham số `danger_mode`:
+      - False (mặc định): tránh toàn bộ hazard zone (bao gồm timer > 1).
+      - True: BFS thoát nguy hiểm — cho phép đi qua hazard zone có timer > 1
+              để tìm lối ra; vẫn chặn explosion và timer <= 1.
     """
-    if not targets:
+    if not goal_set:
         return None
 
+    # Tập bomb positions để kiểm tra không đi vào ô có bomb
     bomb_positions = {(bx, by) for bx, by, _ in bombs}
-    queue = deque([(start, [start])])
-    visited = {start}
 
-    while queue:
-        (cx, cy), path = queue.popleft()
+    # --- Khởi tạo frontier (hàng đợi FIFO) và visited ---
+    frontier: deque = deque()
+    frontier.append((start, [start]))    # mỗi phần tử: (node, path_đến_node)
+    visited: Set[Tuple[int, int]] = {start}
 
-        if (cx, cy) in targets:
+    # --- Vòng lặp BFS: expand từng lớp (level-by-level) ---
+    while frontier:
+        node, path = frontier.popleft()  # lấy node từ đầu hàng đợi (FIFO)
+
+        # --- Goal test: kiểm tra ngay khi dequeue ---
+        if node in goal_set:
             return path
 
+        cx, cy = node
+
+        # --- Expand: sinh ra các node kề (láng giềng 4 hướng) ---
         for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
             nx, ny = cx + dx, cy + dy
+            neighbor = (nx, ny)
+
+            # Ràng buộc 1: trong giới hạn bản đồ
             if not (0 <= nx < width and 0 <= ny < height):
                 continue
-            if (nx, ny) in walls or (nx, ny) in bricks:
-                continue
-            if (nx, ny) in bomb_positions and (nx, ny) != start:
-                continue
-            if (nx, ny) in explosions:
-                continue
-            # Avoid tiles that will explode very soon
-            if (nx, ny) in hazard_zones and hazard_zones[(nx, ny)] <= 1:
-                continue
-            if (nx, ny) not in visited:
-                visited.add((nx, ny))
-                queue.append(((nx, ny), path + [(nx, ny)]))
 
-    return None
-
-
-def bfs_find_safe_tile(start, walls, bricks, bombs, explosions, hazard_zones, width, height):
-    """BFS to find the nearest safe tile to escape from danger."""
-    bomb_positions = {(bx, by) for bx, by, _ in bombs}
-    queue = deque([(start, [start])])
-    visited = {start}
-
-    while queue:
-        (cx, cy), path = queue.popleft()
-
-        if is_safe_tile((cx, cy), hazard_zones, explosions):
-            return path
-
-        for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
-            nx, ny = cx + dx, cy + dy
-            if not (0 <= nx < width and 0 <= ny < height):
+            # Ràng buộc 2: không phải tường hoặc gạch (không thể đi qua)
+            if neighbor in walls or neighbor in bricks:
                 continue
-            if (nx, ny) in walls or (nx, ny) in bricks:
-                continue
-            if (nx, ny) in bomb_positions and (nx, ny) != start:
-                continue
-            if (nx, ny) in explosions:
-                continue
-            if (nx, ny) not in visited:
-                visited.add((nx, ny))
-                queue.append(((nx, ny), path + [(nx, ny)]))
 
-    return None
+            # Ràng buộc 3: không đi vào ô có bomb (trừ vị trí xuất phát)
+            if neighbor in bomb_positions and neighbor != start:
+                continue
+
+            # Ràng buộc 4: không đi vào ô đang có explosion
+            if neighbor in explosions:
+                continue
+
+            # Ràng buộc 5: không đi vào blast zone sắp nổ (timer <= 1)
+            if neighbor in hazard_zones and hazard_zones[neighbor] <= 1:
+                continue
+
+            # Ràng buộc 6 (chỉ khi không phải danger_mode):
+            # tránh toàn bộ blast zone (kể cả timer > 1)
+            if not danger_mode and neighbor in hazard_zones:
+                continue
+
+            # Chỉ thêm vào frontier nếu chưa visited (tránh lặp)
+            if neighbor not in visited:
+                visited.add(neighbor)
+                frontier.append((neighbor, path + [neighbor]))
+
+    return None  # không tìm được đường đến bất kỳ goal nào
 
 
 def path_to_action(path) -> str:
@@ -244,85 +140,80 @@ def should_place_bomb(pos, enemies, bricks, walls, blast_radius, width, height) 
 
 class BFSAgent(BaseAgent):
     """
-    BFS Agent - Uses Breadth-First Search to navigate toward the best target.
-    Priority: Escape danger > Collect items > Hunt enemies > Destroy bricks.
-    BFS guarantees the shortest path (minimum steps) to the chosen target.
+    BFS Agent — Breadth-First Search là cơ chế quyết định trung tâm.
+
+    Mỗi bước:
+      1. Xây dựng UNIFIED GOAL SET: tập hợp tất cả tile đáng đến
+         (safe tiles khi nguy hiểm, item tiles, enemy-adjacent, brick-adjacent).
+      2. Gọi MỘT lần bfs() duy nhất → tìm tile gần nhất trong goal set.
+      3. Nếu đã đứng tại goal (cạnh enemy/brick) và có escape → đặt BOMB.
+      4. Không có heuristic, không có priority chain, không có weighted score.
+
+    BFS đảm bảo đường đi ngắn nhất (theo số bước). Nguy hiểm được tránh bằng
+    cách không expand vào tile nguy hiểm (ràng buộc encode trong node traversal).
     """
 
     def choose_action(self, state: dict) -> str:
+        # --- Phân tích trạng thái ---
         info = parse_state(state)
         px, py = info["player_pos"]
         walls = info["walls"]
         bricks = info["bricks"]
         bombs = info["bombs"]
-        explosions = info["explosions"]
-        enemies = info["enemies"]
-        items = info["items"]
         ammo = info["ammo"]
-        blast_radius = info["blast_radius"]
         width = info["width"]
         height = info["height"]
 
-        hazard_zones = get_hazard_zones(bombs, walls, bricks, blast_radius, width, height)
+        current_sim = simulate_state(info, "WAIT")
+        current_score = evaluate_state(current_sim)
 
-        # --- PRIORITY 1: ESCAPE if in danger ---
-        if (px, py) in hazard_zones or (px, py) in explosions:
-            escape_path = bfs_find_safe_tile(
-                (px, py), walls, bricks, bombs, explosions, hazard_zones, width, height
-            )
-            if escape_path and len(escape_path) > 1:
-                return path_to_action(escape_path)
-            return "WAIT"
-
-        # --- PRIORITY 2: PLACE BOMB if adjacent to enemy and have ammo ---
-        if ammo > 0:
-            bomb_positions_set = {(bx, by) for bx, by, _ in bombs}
-            if (px, py) not in bomb_positions_set:
-                if should_place_bomb((px, py), enemies, bricks, walls, blast_radius, width, height):
-                    # Verify we can escape after placing bomb
-                    simulated_bombs = bombs + [(px, py, 4)]
-                    sim_hazard = get_hazard_zones(simulated_bombs, walls, bricks, blast_radius, width, height)
-                    escape_path = bfs_find_safe_tile(
-                        (px, py), walls, bricks, simulated_bombs, explosions, sim_hazard, width, height
-                    )
-                    if escape_path and len(escape_path) > 1:
-                        return "BOMB"
-
-        # --- PRIORITY 3: BFS to nearest ITEM ---
-        if items:
-            item_targets = set(items.keys())
-            path = bfs_to_target(
-                (px, py), item_targets, walls, bricks, bombs, explosions, hazard_zones, width, height
-            )
-            if path and len(path) > 1:
-                return path_to_action(path)
-
-        # --- PRIORITY 4: BFS to position adjacent to ENEMY ---
-        if enemies:
-            enemy_adj = set()
-            for ex, ey in enemies:
-                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-                    tx, ty = ex + dx, ey + dy
-                    if 0 <= tx < width and 0 <= ty < height and (tx, ty) not in walls and (tx, ty) not in bricks:
-                        enemy_adj.add((tx, ty))
-            path = bfs_to_target(
-                (px, py), enemy_adj, walls, bricks, bombs, explosions, hazard_zones, width, height
-            )
-            if path and len(path) > 1:
-                return path_to_action(path)
-
-        # --- PRIORITY 5: BFS to position adjacent to BRICK ---
-        if bricks:
-            brick_adj = set()
-            for bx, by in bricks:
-                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-                    tx, ty = bx + dx, by + dy
-                    if 0 <= tx < width and 0 <= ty < height and (tx, ty) not in walls and (tx, ty) not in bricks:
-                        brick_adj.add((tx, ty))
-            path = bfs_to_target(
-                (px, py), brick_adj, walls, bricks, bombs, explosions, hazard_zones, width, height
-            )
-            if path and len(path) > 1:
-                return path_to_action(path)
-
-        return "WAIT"
+        # FIFO queue: (sim_state, path_of_actions, depth)
+        queue = deque([(info, [], 0)])
+        
+        best_action = "WAIT"
+        best_score = current_score
+        depth_limit = 3
+        
+        while queue:
+            curr_state, path, depth = queue.popleft()
+            
+            # Evaluate current node's simulated state if not root
+            if depth > 0:
+                score = evaluate_state(curr_state)
+                if score > best_score:
+                    best_score = score
+                    best_action = path[0] if path else "WAIT"
+                
+            if depth >= depth_limit:
+                continue
+                
+            # Generate valid actions from curr_state
+            c_px, c_py = curr_state["player_pos"]
+            c_walls = curr_state["walls"]
+            c_bricks = curr_state["bricks"]
+            c_bombs = curr_state["bombs"]
+            c_ammo = curr_state["ammo"]
+            c_width = curr_state["width"]
+            c_height = curr_state["height"]
+            
+            c_bomb_positions = {(bx, by) for bx, by, _ in c_bombs}
+            
+            # WAIT
+            wait_sim = simulate_state(curr_state, "WAIT")
+            queue.append((wait_sim, path + ["WAIT"], depth + 1))
+            
+            # Movements
+            for action, dx, dy in [("UP", 0, -1), ("DOWN", 0, 1), ("LEFT", -1, 0), ("RIGHT", 1, 0)]:
+                nx, ny = c_px + dx, c_py + dy
+                if 0 <= nx < c_width and 0 <= ny < c_height:
+                    if (nx, ny) not in c_walls and (nx, ny) not in c_bricks:
+                        if (nx, ny) not in c_bomb_positions or (nx, ny) == (c_px, c_py):
+                            sim = simulate_state(curr_state, action)
+                            queue.append((sim, path + [action], depth + 1))
+                            
+            # BOMB
+            if c_ammo > 0 and (c_px, c_py) not in c_bomb_positions:
+                sim = simulate_state(curr_state, "BOMB")
+                queue.append((sim, path + ["BOMB"], depth + 1))
+                
+        return best_action

@@ -1,20 +1,18 @@
 """Entry point for running BombermanAI agent benchmarks."""
-import sys
-from agents.minimax_agent import MinimaxAgent
+from benchmarks.compare_agents import run_agent_suite
 from benchmarks.benchmark import benchmark, run_game
+from agents.minimax_agent import MinimaxAgent
 
 def main():
     """Main execution flow."""
-    print("Initializing MinimaxAgent...")
-    agent = MinimaxAgent(depth=2)
+    print("Running a side-by-side benchmark suite...")
+    run_agent_suite(num_games=10, start_seed=42)
 
-    # Display a sample game rendering so the user can see the environment physics in action
-    print("\nRunning a sample game with ASCII rendering...")
-    # Run 1 game and render it
+    print("\nRunning a sample Minimax game with ASCII rendering...")
+    agent = MinimaxAgent(depth=2)
     run_game(agent, seed=100, render_mode=True)
 
-    print("\nStarting benchmark of 10 matches...")
-    # Evaluate over 10 games
+    print("\nRunning a focused Minimax benchmark...")
     benchmark(agent, num_games=10, start_seed=42)
 
 if __name__ == "__main__":

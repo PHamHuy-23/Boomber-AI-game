@@ -54,16 +54,20 @@ def get_spiral_coords(width: int, height: int) -> List[Tuple[int, int]]:
 class Environment:
     """The Bomberman environment matching gym-like interface."""
 
-    def __init__(self, seed: Optional[int] = None, multi_agent: bool = False):
+    def __init__(self, seed: Optional[int] = None, multi_agent: bool = False, fog_of_war: bool = False, fow_radius: int = 1):
         """
         Initialize the environment.
 
         Args:
             seed (int, optional): Random seed for reproducibility.
             multi_agent (bool): Whether to enable 4-player multi-agent mode.
+            fog_of_war (bool): Whether to enable Fog of War (partial observability).
+            fow_radius (int): Radius of visibility around the agent.
         """
         self.seed = seed
         self.multi_agent = multi_agent
+        self.fog_of_war = fog_of_war
+        self.fow_radius = fow_radius
         self.map: Optional[Map] = None
         self.player: Optional[Player] = None
         self.players: List[Player] = []
@@ -125,14 +129,41 @@ class Environment:
         for exp in self.explosions:
             active_explosions.update(exp.tiles)
 
+        px, py = (self.player.x, self.player.y) if self.player else (0, 0)
+
+        # Base collections
+        enemy_positions = [(e.x, e.y) for e in self.enemies if e.is_alive]
+        bomb_positions = [(b.x, b.y, b.timer) for b in self.bombs]
+        explosions_list = list(active_explosions)
+        walls_list = list(self.map.walls) if self.map else []
+        bricks_list = list(self.map.bricks) if self.map else []
+        items_dict = {(x, y): item.item_type.value for (x, y), item in self.items.items()}
+
+        if self.fog_of_war:
+            r = self.fow_radius
+            # FOW: Visibility = union of 3x3 zones around player AND each enemy
+            # Enemy positions are always globally visible
+            # A tile is visible if within Chebyshev distance <= r of player OR any enemy
+            vision_centers = [(px, py)] + list(enemy_positions)
+            def is_visible(tx, ty):
+                for cx, cy in vision_centers:
+                    if max(abs(tx - cx), abs(ty - cy)) <= r:
+                        return True
+                return False
+            bomb_positions = [pos for pos in bomb_positions if is_visible(pos[0], pos[1])]
+            explosions_list = [pos for pos in explosions_list if is_visible(pos[0], pos[1])]
+            walls_list = [pos for pos in walls_list if is_visible(pos[0], pos[1])]
+            bricks_list = [pos for pos in bricks_list if is_visible(pos[0], pos[1])]
+            items_dict = {pos: val for pos, val in items_dict.items() if is_visible(pos[0], pos[1])}
+
         return {
-            "self_position": (self.player.x, self.player.y) if self.player else (0, 0),
-            "enemy_positions": [(e.x, e.y) for e in self.enemies if e.is_alive],
-            "bomb_positions": [(b.x, b.y, b.timer) for b in self.bombs],
-            "explosions": list(active_explosions),
-            "walls": list(self.map.walls) if self.map else [],
-            "bricks": list(self.map.bricks) if self.map else [],
-            "items": {(x, y): item.item_type.value for (x, y), item in self.items.items()},
+            "self_position": (px, py),
+            "enemy_positions": enemy_positions,
+            "bomb_positions": bomb_positions,
+            "explosions": explosions_list,
+            "walls": walls_list,
+            "bricks": bricks_list,
+            "items": items_dict,
             "ammo": self.player.bombs_left if self.player else 0,
             "blast_radius": self.player.blast_radius if self.player else 0,
             "width": self.map.width if self.map else GameConfig.MAP_WIDTH,
@@ -155,14 +186,41 @@ class Environment:
         for exp in self.explosions:
             active_explosions.update(exp.tiles)
 
+        px, py = (player.x, player.y) if player.is_alive else (0, 0)
+
+        # Base collections
+        enemy_positions = [(p.x, p.y) for i, p in enumerate(self.players) if i != player_idx and p.is_alive]
+        bomb_positions = [(b.x, b.y, b.timer) for b in self.bombs]
+        explosions_list = list(active_explosions)
+        walls_list = list(self.map.walls) if self.map else []
+        bricks_list = list(self.map.bricks) if self.map else []
+        items_dict = {(x, y): item.item_type.value for (x, y), item in self.items.items()}
+
+        if self.fog_of_war:
+            r = self.fow_radius
+            # FOW: Visibility = union of 3x3 zones around player AND each enemy
+            # Enemy positions are always globally visible
+            # A tile is visible if within Chebyshev distance <= r of player OR any enemy
+            vision_centers = [(px, py)] + list(enemy_positions)
+            def is_visible(tx, ty):
+                for cx, cy in vision_centers:
+                    if max(abs(tx - cx), abs(ty - cy)) <= r:
+                        return True
+                return False
+            bomb_positions = [pos for pos in bomb_positions if is_visible(pos[0], pos[1])]
+            explosions_list = [pos for pos in explosions_list if is_visible(pos[0], pos[1])]
+            walls_list = [pos for pos in walls_list if is_visible(pos[0], pos[1])]
+            bricks_list = [pos for pos in bricks_list if is_visible(pos[0], pos[1])]
+            items_dict = {pos: val for pos, val in items_dict.items() if is_visible(pos[0], pos[1])}
+
         return {
-            "self_position": (player.x, player.y) if player.is_alive else (0, 0),
-            "enemy_positions": [(p.x, p.y) for i, p in enumerate(self.players) if i != player_idx and p.is_alive],
-            "bomb_positions": [(b.x, b.y, b.timer) for b in self.bombs],
-            "explosions": list(active_explosions),
-            "walls": list(self.map.walls) if self.map else [],
-            "bricks": list(self.map.bricks) if self.map else [],
-            "items": {(x, y): item.item_type.value for (x, y), item in self.items.items()},
+            "self_position": (px, py),
+            "enemy_positions": enemy_positions,
+            "bomb_positions": bomb_positions,
+            "explosions": explosions_list,
+            "walls": walls_list,
+            "bricks": bricks_list,
+            "items": items_dict,
             "ammo": player.bombs_left if player.is_alive else 0,
             "blast_radius": player.blast_radius if player.is_alive else 0,
             "width": self.map.width if self.map else GameConfig.MAP_WIDTH,
