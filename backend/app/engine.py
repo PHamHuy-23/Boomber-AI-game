@@ -335,7 +335,7 @@ class SimulationEngine:
 
         # 8. Check Game Over
         alive_count = sum(1 for a in self.state.agents.values() if a.is_alive)
-        if alive_count <= 1 or self.state.step_count >= 500:
+        if alive_count <= 1 or self.state.step_count >= 300:
             return False
 
         return True

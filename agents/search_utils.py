@@ -104,6 +104,14 @@ def parse_state(state: dict) -> dict:
         for k, v in raw.items():
             if isinstance(k, (list, tuple)):
                 items[tuple(k)] = v
+            elif isinstance(k, str):
+                try:
+                    cleaned = k.strip("()[]{} ")
+                    parts = cleaned.split(",")
+                    if len(parts) == 2:
+                        items[(int(parts[0].strip()), int(parts[1].strip()))] = v
+                except Exception:
+                    pass
                 
     return {
         "player_pos": player_pos,
@@ -205,7 +213,7 @@ def simulate_state(info: dict, action: str) -> dict:
         # Lan truyền tia lửa nổ theo 4 hướng
         for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
             for dist in range(1, br + 1):
-                tx, ty = bx + dx * dist, py + dy * dist
+                tx, ty = bx + dx * dist, by + dy * dist
                 if not (0 <= tx < width and 0 <= ty < height):
                     break
                 if (tx, ty) in walls:
@@ -262,8 +270,8 @@ def simulate_state(info: dict, action: str) -> dict:
         projected_hit_enemies.update(new_projected_hit_enemies)
         # Cộng điểm thưởng dựa trên hiệu quả ước tính của quả bom vừa đặt
         bomb_efficiency_reward += (
-            len(new_projected_destroyed_bricks) * 200.0 + # Phá gạch: +200 điểm
-            len(new_projected_hit_enemies) * 400.0 +       # Trúng địch: +400 điểm
+            len(new_projected_destroyed_bricks) * 600.0 + # Phá gạch: +600 điểm (tăng từ 200)
+            len(new_projected_hit_enemies) * 1500.0 +      # Trúng địch: +1500 điểm (tăng từ 400)
             chained_bombs_count * 150.0                    # Nổ dây chuyền: +150 điểm
         )
 
@@ -329,20 +337,39 @@ def evaluate_state(sim_state: dict) -> float:
         timer = hazard_zones[pos]
         if timer <= 1:
             return -500000.0 # Cực kỳ nguy hiểm, bom sắp nổ ở tick sau
-        score -= (5 - timer) * 150.0 # Phạt dựa trên thời gian bom nổ đến gần
+        elif timer <= 2:
+            # Check xem có ít nhất một ô thoát hiểm lân cận hoàn toàn an toàn không
+            has_escape = False
+            for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+                nx, ny = pos[0] + dx, pos[1] + dy
+                if 0 <= nx < width and 0 <= ny < height:
+                    if (nx, ny) not in walls and (nx, ny) not in bricks and (nx, ny) not in bomb_positions and (nx, ny) not in explosions:
+                        if (nx, ny) not in hazard_zones or hazard_zones[(nx, ny)] > 2:
+                            has_escape = True
+                            break
+            if not has_escape:
+                score -= 5000.0 # Không có lối thoát, phạt rất nặng
+            else:
+                score -= 250.0  # Có lối thoát hiểm, phạt nhẹ để khuyến khích đi ra ngoài
+        else:
+            score -= (5 - timer) * 10.0 # Phạt nhẹ để khuyến khích di chuyển nếu bom còn lâu mới nổ
 
     bomb_timers = {(bx, by): t for bx, by, t in bombs}
     if pos in bomb_positions:
         b_timer = bomb_timers.get(pos, 4)
-        score -= (5 - b_timer) * 300.0 # Phạt khi đứng đè lên quả bom của chính mình sắp nổ
+        if b_timer <= 2:
+            score -= (5 - b_timer) * 300.0 # Phạt khi đứng đè lên quả bom sắp nổ
+        else:
+            score -= 500.0 # Phạt nặng đứng đè lên bom mới đặt (500 thay vì 50) để bắt buộc phải di chuyển ra ngoài
 
-    # Kiểm tra số lượng ô láng giềng thực sự an toàn (không có bom/nổ/nguy cơ)
+    # Kiểm tra số lượng ô láng giềng thực sự an toàn (không có bom/nổ/nguy cơ nổ ngay)
     safe_neighbors = 0
     for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
         nx, ny = pos[0] + dx, pos[1] + dy
         if 0 <= nx < width and 0 <= ny < height:
             if (nx, ny) not in walls and (nx, ny) not in bricks and (nx, ny) not in bomb_positions and (nx, ny) not in explosions:
-                if (nx, ny) not in hazard_zones:
+                # Chỉ coi là không an toàn nếu ô đó sắp nổ (timer <= 2)
+                if (nx, ny) not in hazard_zones or hazard_zones[(nx, ny)] > 2:
                     safe_neighbors += 1
     score += safe_neighbors * 200.0
 
@@ -367,7 +394,7 @@ def evaluate_state(sim_state: dict) -> float:
                         continue
                     if 0 <= nnx < width and 0 <= nny < height:
                         if (nnx, nny) not in walls and (nnx, nny) not in bricks and (nnx, nny) not in bomb_positions and (nnx, nny) not in explosions:
-                            if (nnx, nny) not in hazard_zones:
+                            if (nnx, nny) not in hazard_zones or hazard_zones[(nnx, nny)] > 2:
                                 escape_routes += 1
     score += escape_routes * 150.0
 
@@ -381,17 +408,44 @@ def evaluate_state(sim_state: dict) -> float:
         min_dist_item = min(abs(pos[0] - ix) + abs(pos[1] - iy) for ix, iy in items.keys())
         score += 600.0 / (min_dist_item + 1) # Thưởng điểm khi lại gần vật phẩm nhất
 
-    # 5. Enemy Proximity (Tương tác với kẻ địch)
+    # 5. Enemy Proximity & Trapping Heuristic (Tương tác và dồn ép kẻ địch)
     effective_enemies_count = len(enemies) - len(projected_hit_enemies)
-    score -= effective_enemies_count * 3000.0 # Thưởng lớn khi tiêu diệt được kẻ địch
+    score -= effective_enemies_count * 10000.0 # Thưởng cực lớn khi tiêu diệt được kẻ địch (tăng từ 5000)
     if enemies:
-        min_dist_enemy = min(abs(pos[0] - ex) + abs(pos[1] - ey) for ex, ey in enemies)
+        # Tìm kẻ địch gần nhất
+        dists = [(abs(pos[0] - ex) + abs(pos[1] - ey), (ex, ey)) for ex, ey in enemies]
+        min_dist_enemy, closest_enemy = min(dists, key=lambda x: x[0])
+        
         if ammo > 0:
-            score += 300.0 / (min_dist_enemy + 1) # Nếu có bom, khuyến khích áp sát kẻ địch để đặt bom tiêu diệt
-            if min_dist_enemy <= 1:
-                score += 100.0
+            if min_dist_enemy <= 4:
+                # Kích hoạt chế độ săn lùng (Hunting Mode) khi ở gần
+                score += 4000.0 / (min_dist_enemy + 1)
+                score += 1500.0
+                
+                # Thưởng lớn khi ép sát kẻ địch (cách 1-2 ô) để đặt bom dồn ép
+                if min_dist_enemy <= 2:
+                    score += 1000.0
+                    if min_dist_enemy == 1:
+                        score += 1500.0
+                    
+                    # Check xem kẻ địch có đang bị kẹt hay có ít lối thoát (cornered/trapped) không
+                    ex, ey = closest_enemy
+                    enemy_safe_moves = 0
+                    for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+                        nx, ny = ex + dx, ey + dy
+                        if 0 <= nx < width and 0 <= ny < height:
+                            if (nx, ny) not in walls and (nx, ny) not in bricks and (nx, ny) not in bomb_positions:
+                                enemy_safe_moves += 1
+                    
+                    # Nếu đối thủ đứng yên/bị kẹt ở ngõ cụt (có <= 1 ô di chuyển an toàn), tăng thưởng lớn để AI lao tới khóa góc đặt bom tiêu diệt
+                    if enemy_safe_moves <= 1:
+                        score += 3000.0
+            else:
+                # Khi ở xa, giữ khuyến khích nhẹ nhàng để AI tập trung phá gạch dọn đường đi tìm đối thủ
+                score += 500.0 / (min_dist_enemy + 1)
         else:
-            score -= 200.0 / (min_dist_enemy + 1) # Nếu không còn bom, tránh xa kẻ địch để tự vệ
+            # Nếu hết bom, tránh xa kẻ địch để tự vệ
+            score -= 400.0 / (min_dist_enemy + 1)
 
     # 6. Brick Proximity (Tương tác với gạch)
     effective_bricks = set(bricks) - projected_destroyed_bricks

@@ -51,10 +51,10 @@ AGENT_FACTORIES = {
     "A*": lambda: AStarAgent(),
     "HillClimbing": lambda: HillClimbingAgent(),
     "SimulatedAnnealing": lambda: SimulatedAnnealingAgent(),
-    "Backtracking": lambda: BacktrackingAgent(),
-    "MinConflicts": lambda: MinConflictsAgent(),
+    "Backtracking": lambda: BacktrackingAgent(max_depth=2),
+    "MinConflicts": lambda: MinConflictsAgent(max_depth=2, max_steps=20),
     "OnlineSearch": lambda: OnlineSearchAgent(),
-    "AndOrSearch": lambda: AndOrSearchAgent(),
+    "AndOrSearch": lambda: AndOrSearchAgent(depth=2),
     "Minimax": lambda: MinimaxAgent(depth=2),
     "Expectimax": lambda: ExpectimaxAgent(depth=2),
 }
@@ -106,7 +106,7 @@ def render_board_ascii(grid: List[List[int]], agents: Dict[str, Any], bombs: Lis
     lines.append(border)
     return "\n".join(lines)
 
-def run_analyzed_match(agent_names: List[str], seed: int) -> str:
+def run_analyzed_match(agent_names: List[str], seed: int, fog_of_war: bool = False) -> str:
     """Run a single 4-agent match and return a detailed markdown log."""
     if len(agent_names) != 4:
         raise ValueError("Exactly 4 agents are required for a match.")
@@ -128,6 +128,11 @@ def run_analyzed_match(agent_names: List[str], seed: int) -> str:
     tracker = MetricsTracker(agent_ids=order)
     engine = SimulationEngine(grid=grid, tracker=tracker)
 
+    # ThreadPool for enforcing 100ms timeouts on actions
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError
+    thread_pool = ThreadPoolExecutor(max_workers=4)
+
+
 
     # Spawn points
     spawn_points = [(1, 1), (13, 1), (1, 11), (13, 11)]
@@ -141,6 +146,7 @@ def run_analyzed_match(agent_names: List[str], seed: int) -> str:
     report = []
     report.append(f"# Bomberman AI Detailed Match Analysis")
     report.append(f"**Seed:** {seed}")
+    report.append(f"**Fog of War:** {'Enabled (Radius: 4)' if fog_of_war else 'Disabled'}")
     report.append(f"**Roster:**")
     for i, pid in enumerate(order):
         report.append(f"- **Agent {i+1} ({pid}):** {agent_mapping[pid]}")
@@ -209,6 +215,24 @@ def run_analyzed_match(agent_names: List[str], seed: int) -> str:
             enemy_positions = [(a.x, a.y) for aid, a in engine.state.agents.items() if aid != pid and a.is_alive]
             bomb_positions = [(b.x, b.y, max(1, b.timer - 3)) for b in engine.state.bombs]
             explosions = list(engine.state.explosions)
+
+            # Apply Fog of War filtering
+            if fog_of_war:
+                r = 4
+                # Visible if within Chebyshev distance <= r of self OR any alive enemy
+                vision_centers = [(agent.x, agent.y)] + enemy_positions
+                def is_visible(tx, ty):
+                    for cx, cy in vision_centers:
+                        if max(abs(tx - cx), abs(ty - cy)) <= r:
+                            return True
+                    return False
+
+                walls = [w for w in walls if is_visible(w[0], w[1])]
+                bricks = [b for b in bricks if is_visible(b[0], b[1])]
+                items = {k: v for k, v in items.items() if is_visible(k[0], k[1])}
+                bomb_positions = [b for b in bomb_positions if is_visible(b[0], b[1])]
+                explosions = [e for e in explosions if is_visible(e[0], e[1])]
+
             state_for_agent = {
                 "self_position": (agent.x, agent.y),
                 "enemy_positions": enemy_positions,
@@ -225,14 +249,21 @@ def run_analyzed_match(agent_names: List[str], seed: int) -> str:
             }
 
             t0 = time.perf_counter()
-            action_str = bot_instances[pid].choose_action(state_for_agent)
-            t1 = time.perf_counter()
-            latency = (t1 - t0) * 1000.0
+            future = thread_pool.submit(bot_instances[pid].choose_action, state_for_agent)
+            try:
+                action_str = future.result(timeout=0.100) # 100ms timeout limit
+                t1 = time.perf_counter()
+                latency = (t1 - t0) * 1000.0
+                report.append(f"- **Agent {i+1} ({agent_mapping[pid]}):** chose `{action_str}` (took {latency:.2f} ms)")
+            except TimeoutError:
+                action_str = "WAIT"
+                latency = 100.0
+                report.append(f"- **Agent {i+1} ({agent_mapping[pid]}):** TIMEOUT (>100ms) - forced WAIT")
+
             tracker.record_step_latency(pid, latency)
 
             action_map = {"WAIT": 0, "STOP": 0, "LEFT": 1, "RIGHT": 2, "UP": 3, "DOWN": 4, "BOMB": 5}
             actions[pid] = action_map.get(action_str, 0)
-            report.append(f"- **Agent {i+1} ({agent_mapping[pid]}):** chose `{action_str}` (took {latency:.2f} ms)")
 
         # 3. Step the engine
         game_continues = engine.step(actions)
@@ -294,6 +325,9 @@ def run_analyzed_match(agent_names: List[str], seed: int) -> str:
 
         report.append("\n" + "-"*40 + "\n")
 
+    # Shutdown the thread pool to free resources
+    thread_pool.shutdown(wait=False)
+
     # 5. Compile final statistics
     report.append("## Match Summary")
     alive_agents = [aid for aid, a in engine.state.agents.items() if a.is_alive]
@@ -329,6 +363,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--seed", type=int, default=42, help="Seed for the match layout.")
     parser.add_argument("--output", type=str, default=None, help="Output markdown filepath.")
+    parser.add_argument("--fog", action="store_true", help="Enable Fog of War mode.")
     args = parser.parse_args()
 
     for agent in args.agents:
@@ -336,8 +371,8 @@ if __name__ == "__main__":
             print(f"Error: Agent '{agent}' is invalid. Choose from: {list(AGENT_FACTORIES.keys())}")
             sys.exit(1)
 
-    print(f"Starting analysis for match with agents: {args.agents} under seed {args.seed}...")
-    markdown_log = run_analyzed_match(args.agents, args.seed)
+    print(f"Starting analysis for match with agents: {args.agents} under seed {args.seed} (Fog of War: {args.fog})...")
+    markdown_log = run_analyzed_match(args.agents, args.seed, fog_of_war=args.fog)
 
     # Determine output file
     if args.output:

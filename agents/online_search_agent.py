@@ -96,14 +96,15 @@ class OnlineSearchAgent(BaseAgent):
         self.H: Dict[Any, float] = {}
         self.prev_state_key = None
         self.prev_action = None
+        self.steps_run = 0
 
     def choose_action(self, state: dict) -> str:
+        self.steps_run += 1
         state_info = parse_state(state)
         current_state_key = get_state_key(state_info)
         
-        # Reset bộ nhớ nếu game mới bắt đầu (tick <= 1)
-        tick = state.get("tick") or state.get("step") or state.get("time", 0)
-        if tick <= 1:
+        # Reset bộ nhớ nếu game mới bắt đầu (bước chạy đầu tiên)
+        if self.steps_run <= 1:
             self.prev_state_key = None
             self.prev_action = None
 
