@@ -1,18 +1,22 @@
-"""Agents package containing BaseAgent and its implementations."""
+"""
+Package Agents chứa lớp cơ sở BaseAgent và các lớp cài đặt cụ thể của nó.
+"""
 from abc import ABC, abstractmethod
 
 class BaseAgent(ABC):
-    """Abstract base class for all Bomberman agents."""
+    """
+    Lớp cơ sở trừu tượng (Abstract Base Class) cho tất cả các agent Bomberman.
+    """
 
     @abstractmethod
     def choose_action(self, state: dict) -> str:
         """
-        Choose an action from the action space based on the current game state.
+        Chọn một hành động từ không gian hành động dựa trên trạng thái game hiện tại.
 
         Args:
-            state (dict): Dictionary representing the current environment state.
+            state (dict): Từ điển biểu diễn trạng thái môi trường hiện tại.
 
         Returns:
-            str: The chosen action string ('UP', 'DOWN', 'LEFT', 'RIGHT', 'BOMB', 'WAIT').
+            str: Chuỗi hành động được chọn ('UP', 'DOWN', 'LEFT', 'RIGHT', 'BOMB', 'WAIT').
         """
         pass

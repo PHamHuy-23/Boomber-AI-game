@@ -1,10 +1,21 @@
-"""AND-OR Search Agent for Bomberman."""
+"""
+AND-OR Search Agent - Agent tìm kiếm AND-OR cho game Bomberman.
+
+Triết lý thiết kế:
+  Tìm kiếm AND-OR được áp dụng trong môi trường không xác định (non-deterministic).
+  - Nút OR (OR nodes): Đại diện cho quyết định của Agent. Agent muốn chọn hành động tốt nhất để tối đa hóa điểm số.
+  - Nút AND (AND nodes): Đại diện cho các khả năng xảy ra của môi trường (ở đây là hành động của kẻ địch gần nhất).
+    Agent phải chuẩn bị cho kịch bản xấu nhất (lấy giá trị tối thiểu - worst-case).
+  
+  Mục tiêu của Tìm kiếm AND-OR là tìm ra một kế hoạch dự phòng (contingent plan) đảm bảo an toàn và hiệu quả
+  bất kể kẻ địch di chuyển như thế nào trong tình huống xấu nhất.
+"""
 from typing import List, Tuple, Dict, Any
 from agents import BaseAgent
 from agents.search_utils import parse_state, simulate_state, evaluate_state
 
 def get_valid_actions(state_info: dict) -> List[str]:
-    """Get all physically valid actions for the player in the current state."""
+    """Lấy tất cả các hành động hợp lý về mặt vật lý của người chơi."""
     px, py = state_info["player_pos"]
     walls = state_info["walls"]
     bricks = state_info["bricks"]
@@ -14,7 +25,7 @@ def get_valid_actions(state_info: dict) -> List[str]:
 
     valid = ["WAIT"]
 
-    # Movement actions
+    # Di chuyển
     moves = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}
     for action, (dx, dy) in moves.items():
         nx, ny = px + dx, py + dy
@@ -22,14 +33,14 @@ def get_valid_actions(state_info: dict) -> List[str]:
             if (nx, ny) not in walls and (nx, ny) not in bricks and (nx, ny) not in bomb_positions:
                 valid.append(action)
 
-    # Bomb placement action
+    # Đặt bom
     if state_info["ammo"] > 0 and (px, py) not in bomb_positions:
         valid.append("BOMB")
 
     return valid
 
 def get_enemy_valid_moves(enemy_pos: Tuple[int, int], state_info: dict) -> List[Tuple[int, int]]:
-    """Get all valid next positions for an enemy (adjacent cells and waiting)."""
+    """Lấy tất cả vị trí tiếp theo kẻ địch có thể đi tới."""
     ex, ey = enemy_pos
     walls = state_info["walls"]
     bricks = state_info["bricks"]
@@ -37,7 +48,7 @@ def get_enemy_valid_moves(enemy_pos: Tuple[int, int], state_info: dict) -> List[
     bomb_positions = {(bx, by) for bx, by, _ in bombs}
     width, height = state_info["width"], state_info["height"]
 
-    valid_positions = [(ex, ey)] # Waiting is always possible
+    valid_positions = [(ex, ey)]
 
     for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
         nx, ny = ex + dx, ey + dy
@@ -49,10 +60,7 @@ def get_enemy_valid_moves(enemy_pos: Tuple[int, int], state_info: dict) -> List[
 
 class AndOrSearchAgent(BaseAgent):
     """
-    AND-OR Search Agent.
-    Models the non-deterministic environment: OR nodes (agent decisions) and
-    AND nodes (possible outcomes / enemy moves) where the agent seeks a contingent
-    plan that works in the worst-case.
+    AndOrSearchAgent thực hiện tìm kiếm AND-OR lên tới độ sâu quy định (mặc định depth = 5).
     """
 
     def __init__(self, depth: int = 5):
@@ -61,7 +69,7 @@ class AndOrSearchAgent(BaseAgent):
     def choose_action(self, state: dict) -> str:
         state_info = parse_state(state)
         
-        # Determine root's legal actions
+        # Xác định các hành động hợp lệ
         legal_actions = state.get("legal_actions")
         valid_actions = get_valid_actions(state_info)
         if legal_actions:
@@ -72,7 +80,7 @@ class AndOrSearchAgent(BaseAgent):
         best_action = "WAIT"
         best_score = -float('inf')
 
-        # OR Node at the Root: choose the action that maximizes the AND-node value
+        # Nút OR đầu tiên (tại gốc): chọn hành động dẫn tới giá trị nút AND tốt nhất
         for action in valid_actions:
             next_state = simulate_state(state_info, action)
             score = self.and_node(next_state, self.depth - 1)
@@ -84,7 +92,7 @@ class AndOrSearchAgent(BaseAgent):
         return best_action
 
     def or_node(self, state: dict, depth: int) -> float:
-        """OR node: agent chooses the action with the best AND-node outcome."""
+        """Nút OR: Người chơi chọn hành động tốt nhất để tối đa hóa điểm số."""
         if depth == 0 or state["player_pos"] in state["explosions"]:
             return evaluate_state(state)
 
@@ -95,20 +103,21 @@ class AndOrSearchAgent(BaseAgent):
         v = -float('inf')
         for action in valid_actions:
             next_state = simulate_state(state, action)
+            # Nút OR gọi nút AND kế tiếp
             v = max(v, self.and_node(next_state, depth - 1))
         return v
 
     def and_node(self, state: dict, depth: int) -> float:
-        """AND node: must handle ALL possible outcomes of non-determinism (minimum utility)."""
+        """Nút AND: Môi trường (kẻ địch) phản ứng. Ta tính toán dựa trên kịch bản xấu nhất (tối thiểu hóa)."""
         if depth == 0 or state["player_pos"] in state["explosions"]:
             return evaluate_state(state)
 
         enemies = state["enemies"]
         if not enemies:
-            # If no enemies, the AND node has only 1 branch (the next OR node decision)
+            # Nếu không có kẻ địch, chỉ có 1 nhánh phản ứng duy nhất từ môi trường (chuyển tiếp tới nút OR)
             return self.or_node(state, depth - 1)
 
-        # Model the closest enemy as the source of environmental non-determinism
+        # Mô hình hóa kẻ địch gần nhất là nguồn gốc gây ra sự bất định của môi trường
         px, py = state["player_pos"]
         closest_idx = 0
         min_dist = float('inf')
@@ -121,7 +130,7 @@ class AndOrSearchAgent(BaseAgent):
         enemy_pos = enemies[closest_idx]
         valid_moves = get_enemy_valid_moves(enemy_pos, state)
 
-        # Pessimistic worst-case value over all possible enemy movements
+        # Trả về giá trị tệ nhất (min) trong tất cả các phản ứng có thể của kẻ địch
         v = float('inf')
         for next_pos in valid_moves:
             next_state = {**state}

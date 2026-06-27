@@ -1,11 +1,24 @@
-"""Min-Conflicts Agent (CSP Local Search) for Bomberman."""
+"""
+Min-Conflicts Agent - Agent giải bài toán ràng buộc bằng tìm kiếm cục bộ giảm xung đột (Min-Conflicts).
+
+Triết lý thiết kế:
+  Agent xem việc tìm kiếm chuỗi hành động 4 bước như một Bài toán thỏa mãn ràng buộc (CSP).
+  Thay vì dùng tìm kiếm quay lui hệ thống (Backtracking), nó sử dụng Thuật toán Tìm kiếm cục bộ Giảm xung đột (Min-Conflicts):
+    1. Khởi tạo một lời giải ngẫu nhiên (chuỗi hành động ngẫu nhiên hợp lệ).
+    2. Xác định các bước đi xảy ra xung đột (conflited variables - ví dụ: bước đi vào lửa nổ, đi vào bom, đụng địch).
+    3. Chọn ngẫu nhiên một bước đi có xung đột.
+    4. Thay đổi hành động của bước đi đó bằng cách chọn hành động nào làm giảm tổng số xung đột của toàn chuỗi nhiều nhất
+       (nếu số xung đột bằng nhau thì chọn hành động đem lại điểm số heuristic cao nhất để phá vỡ thế bí).
+    5. Lặp lại cho đến khi hết xung đột hoặc đạt số bước lặp tối đa (max_steps = 100).
+"""
 import random
 from typing import List, Tuple, Dict, Any
 from agents import BaseAgent
 from agents.search_utils import parse_state, simulate_state, evaluate_state
 
+
 def get_valid_actions_for_mc(st: dict) -> List[str]:
-    """Get all physically valid actions for the player in the current state."""
+    """Lấy danh sách các hành động hợp lệ vật lý ở trạng thái đang xét."""
     px, py = st["player_pos"]
     walls = st["walls"]
     bricks = st["bricks"]
@@ -27,16 +40,17 @@ def get_valid_actions_for_mc(st: dict) -> List[str]:
 
 def get_conflicts_and_state(assignment: List[str], root_state: dict) -> Tuple[float, dict]:
     """
-    Simulate the action assignment path and calculate the total number of conflicts.
-    Also returns the final simulated state.
+    Mô phỏng chuỗi gán nhãn hành động (assignment) và đếm tổng số xung đột (conflicts) xảy ra.
+    Trả về: (tổng_số_xung_đột, trạng_thái_mô_phỏng_cuối_cùng).
     """
     current_state = root_state
     total_conflicts = 0.0
 
     for idx, action in enumerate(assignment):
-        # Resolve to WAIT if the action is physically impossible, counting as a conflict
         valid_actions = get_valid_actions_for_mc(current_state)
         resolved_action = action
+        
+        # Nếu hành động không khả thi về mặt vật lý, ép buộc chuyển thành WAIT và cộng xung đột
         if action not in valid_actions:
             total_conflicts += 10.0
             resolved_action = "WAIT"
@@ -44,17 +58,17 @@ def get_conflicts_and_state(assignment: List[str], root_state: dict) -> Tuple[fl
         next_state = simulate_state(current_state, resolved_action)
         px, py = next_state["player_pos"]
 
-        # Safety conflicts at the simulated step
+        # Cộng dồn xung đột an toàn tại bước giả lập hiện thời
         if (px, py) in next_state["explosions"]:
-            total_conflicts += 10.0
+            total_conflicts += 10.0 # Bị lửa nổ trúng
 
         hazard_zones = next_state.get("hazard_zones", {})
         if (px, py) in hazard_zones:
             timer = hazard_zones[(px, py)]
             if timer <= 1:
-                total_conflicts += 10.0
+                total_conflicts += 10.0 # Đứng ở ô bom sắp nổ
 
-        # Enemy collision conflict
+        # Đụng độ kẻ địch
         for ex, ey in next_state["enemies"]:
             if px == ex and py == ey:
                 total_conflicts += 10.0
@@ -65,22 +79,20 @@ def get_conflicts_and_state(assignment: List[str], root_state: dict) -> Tuple[fl
 
 class MinConflictsAgent(BaseAgent):
     """
-    Min-Conflicts Agent.
-    Formulates Bomberman path planning as a CSP with 4 variables (actions for 4 steps).
-    Uses Min-Conflicts local search to resolve conflicts, breaking ties with state evaluation.
+    MinConflictsAgent giải quyết bài toán quy hoạch 4 bước đi dựa trên thuật toán Min-Conflicts.
     """
 
     def __init__(self, max_depth: int = 4, max_steps: int = 100):
-        self.max_depth = max_depth
-        self.max_steps = max_steps
+        self.max_depth = max_depth      # Số bước quy hoạch (số biến CSP)
+        self.max_steps = max_steps      # Số bước lặp tối đa của thuật toán tìm kiếm cục bộ
 
     def choose_action(self, state: dict) -> str:
         state_info = parse_state(state)
         
-        # Domain of actions
+        # Miền giá trị cho các biến hành động
         domain = ["WAIT", "UP", "DOWN", "LEFT", "RIGHT", "BOMB"]
 
-        # Initial assignment: random physically valid path
+        # 1. Khởi tạo phép gán ban đầu: chuỗi hành động ngẫu nhiên hợp lệ vật lý
         assignment = []
         curr = state_info
         for _ in range(self.max_depth):
@@ -93,12 +105,12 @@ class MinConflictsAgent(BaseAgent):
         best_conflicts, final_state = get_conflicts_and_state(assignment, state_info)
         best_score = evaluate_state(final_state)
 
+        # 2. Vòng lặp tối ưu hóa giảm thiểu xung đột
         for step in range(self.max_steps):
-            # Identify conflicted variables (steps where a conflict occurs)
+            # Xác định các bước đi có xung đột
             conflicted_vars = []
             current = state_info
             for i, action in enumerate(assignment):
-                # Check physical consistency
                 valid_acts = get_valid_actions_for_mc(current)
                 resolved_act = action
                 if action not in valid_acts:
@@ -118,19 +130,19 @@ class MinConflictsAgent(BaseAgent):
                     conflicted_vars.append(i)
                 current = next_st
 
+            # Nếu không có bất kỳ xung đột nào, chọn ngẫu nhiên một biến để tìm cách cải thiện điểm số
             if not conflicted_vars:
-                # If no steps have conflicts, pick any variable at random to try and find higher score
                 conflicted_vars = list(range(self.max_depth))
 
-            # Select a conflicted variable at random
+            # Chọn ngẫu nhiên một biến bị xung đột
             var_idx = random.choice(conflicted_vars)
 
-            # Find the value (action) that minimizes conflicts (break ties with evaluate_state score)
+            # Tìm giá trị (hành động) giảm xung đột tốt nhất cho biến này
             best_val = assignment[var_idx]
             min_c = float('inf')
             max_s = -float('inf')
 
-            # Shuffle domain to avoid directional bias
+            # Trộn miền giá trị để tránh thiên hướng hướng đi
             random_domain = list(domain)
             random.shuffle(random_domain)
 
@@ -139,6 +151,7 @@ class MinConflictsAgent(BaseAgent):
                 c, final_st = get_conflicts_and_state(assignment, state_info)
                 s = evaluate_state(final_st)
                 
+                # Ưu tiên giảm thiểu xung đột. Nếu xung đột bằng nhau, ưu tiên điểm số cao hơn.
                 if c < min_c:
                     min_c = c
                     max_s = s
@@ -147,10 +160,10 @@ class MinConflictsAgent(BaseAgent):
                     max_s = s
                     best_val = val
 
-            # Reassign
+            # Gán giá trị tốt nhất tìm được cho biến
             assignment[var_idx] = best_val
 
-            # Keep track of the globally best assignment seen
+            # Theo dõi và cập nhật cấu hình gán nhãn tốt nhất toàn cục
             current_conflicts, final_st = get_conflicts_and_state(assignment, state_info)
             current_score = evaluate_state(final_st)
 
@@ -162,9 +175,10 @@ class MinConflictsAgent(BaseAgent):
                 best_score = current_score
                 best_assignment = list(assignment)
 
-        # Make sure we return a physically valid action as fallback
+        # Trả về hành động đầu tiên của cấu hình tốt nhất
         root_valid = get_valid_actions_for_mc(state_info)
         final_action = best_assignment[0]
+        # Đảm bảo hành động trả về là hợp lệ tại tick hiện tại, nếu không thì đứng chờ (WAIT)
         if final_action not in root_valid:
             final_action = "WAIT"
             

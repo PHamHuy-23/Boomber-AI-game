@@ -1,12 +1,23 @@
-"""Online Search Agent (LRTA* - Learning Real-Time A*) for Bomberman."""
+"""
+Online Search Agent - Agent Tìm kiếm trực tuyến LRTA* (Learning Real-Time A*) cho game Bomberman.
+
+Triết lý thiết kế:
+  Khác với các phương pháp lập kế hoạch offline (BFS, A*, Minimax...) mô phỏng toàn bộ hành trình trước khi di chuyển,
+  Online Search Agent sử dụng thuật toán LRTA* (Learning Real-Time A*):
+    1. Quyết định hành động di chuyển ngay lập tức dựa trên chi phí cục bộ cộng với ước lượng heuristic từ các ô láng giềng.
+    2. Lưu trữ các giá trị ước lượng này vào bảng tra cứu H (State-Space Memory).
+    3. Cập nhật động giá trị H(s_prev) của trạng thái trước đó dựa trên trải nghiệm thực tế để "học hỏi" và tránh
+       bị mắc kẹt vào các giếng tối ưu cục bộ (local minima / loops).
+       Công thức cập nhật: H(s_prev) = max(H(s_prev), min_b (c(s_prev, b, s') + H(s')))
+"""
 from typing import List, Tuple, Dict, Any, Optional
 from agents import BaseAgent
 from agents.search_utils import parse_state, simulate_state, evaluate_state
 
 def get_state_key(state_info: dict) -> Tuple[Tuple[int, int], Tuple[Tuple[int, int], ...], Optional[Tuple[int, int]]]:
     """
-    Generate a discrete state key for LRTA* lookup table.
-    The key consists of (player_pos, sorted_bomb_positions, closest_enemy_pos).
+    Tạo một khóa (key) định danh duy nhất cho mỗi trạng thái rời rạc để lưu trữ vào bảng LRTA*.
+    Khóa gồm: (tọa độ_player, danh_sách_tọa_độ_bom_đã_sắp_xếp, tọa độ_kẻ_địch_gần_nhất).
     """
     px, py = state_info["player_pos"]
     bombs = state_info["bombs"]
@@ -26,15 +37,16 @@ def get_state_key(state_info: dict) -> Tuple[Tuple[int, int], Tuple[Tuple[int, i
 
 def get_action_cost(action: str, current_state: dict, next_state: dict) -> float:
     """
-    Define transition cost c(s, a, s').
-    - Highly illegal actions: extremely high cost (10,000,000.0).
-    - Valid movement: small step cost (10.0) to encourage path efficiency.
-    - Valid Wait/Bomb: slightly higher step cost (20.0) to prevent useless waiting/bombing.
+    Định nghĩa chi phí bước chuyển c(s, a, s').
+    Vì LRTA* là thuật toán tìm đường tối thiểu hóa chi phí (cost minimizer):
+      - Hành động bất hợp lệ vật lý: chi phí cực lớn (10M) để chặn.
+      - Di chuyển hợp lệ: chi phí nhỏ (10.0) nhằm khuyến khích đi đường ngắn.
+      - Chờ hoặc đặt bom hợp lệ: chi phí nhỉnh hơn một chút (20.0) nhằm hạn chế đặt bom bừa bãi hay chờ vô ích.
     """
     px, py = next_state["player_pos"]
     parent_px, parent_py = current_state["player_pos"]
     
-    # Check physical legality of movements
+    # Kiểm tra tính hợp lệ vật lý của di chuyển
     if action in ["UP", "DOWN", "LEFT", "RIGHT"]:
         walls = current_state["walls"]
         bricks = current_state["bricks"]
@@ -65,22 +77,22 @@ def get_action_cost(action: str, current_state: dict, next_state: dict) -> float
 
 def get_initial_heuristic(state_info: dict) -> float:
     """
-    Initial heuristic estimate h(s) for LRTA*.
-    Maps evaluate_state utility to a positive cost scale (lower is better).
+    Ước lượng heuristic ban đầu h(s) cho LRTA*.
+    Chuyển đổi điểm số heuristic (càng cao càng tốt) sang thang đo chi phí dương (càng thấp càng tốt).
     """
     if "hazard_zones" not in state_info:
         state_info = simulate_state(state_info, "WAIT")
     score = evaluate_state(state_info)
+    # Trả về giá trị chi phí (cost)
     return max(0.0, 1000000.0 - score)
 
 class OnlineSearchAgent(BaseAgent):
     """
-    Online Search Agent using textbook LRTA* (Learning Real-Time A*).
-    Learns heuristic values online and updates H(s) dynamically to escape local minima.
+    OnlineSearchAgent áp dụng thuật toán LRTA* sách giáo khoa để học Heuristic trực tuyến trong khi chơi.
     """
 
     def __init__(self):
-        # Persistent memory lookup table H: state_key -> estimated cost to goal
+        # Bảng tra cứu bộ nhớ H: state_key -> chi phí ước lượng tới đích
         self.H: Dict[Any, float] = {}
         self.prev_state_key = None
         self.prev_action = None
@@ -89,37 +101,29 @@ class OnlineSearchAgent(BaseAgent):
         state_info = parse_state(state)
         current_state_key = get_state_key(state_info)
         
-        # Reset memory if a new game starts
+        # Reset bộ nhớ nếu game mới bắt đầu (tick <= 1)
         tick = state.get("tick") or state.get("step") or state.get("time", 0)
         if tick <= 1:
             self.prev_state_key = None
             self.prev_action = None
 
-        # 1. Initialize H for current state if not already visited
+        # 1. Khởi tạo giá trị H cho trạng thái hiện tại nếu chưa từng gặp
         if current_state_key not in self.H:
             self.H[current_state_key] = get_initial_heuristic(state_info)
 
-        # 2. Learning update for the previous state s_prev:
-        # H(s_prev) = max(H(s_prev), min_b (c(s_prev, b, s'_b) + H(s'_b)))
-        if self.prev_state_key is not None and self.prev_action is not None:
-            # We need the parent state info before the previous action, but since we only have
-            # H(s_prev) in memory, we can reconstruct the minimum value from s_prev.
-            # To do that, we can keep the parent state's state_info or estimate it.
-            # Let's save the previous state_info as well for this update.
-            pass
-
-        # To make the update robust and fully consistent with LRTA*, we do:
+        # 2. Cập nhật học hỏi (Learning update) cho trạng thái trước đó s_prev:
+        # H(s_prev) = max(H(s_prev), min_b (c(s_prev, b, s') + H(s')))
         if self.prev_state_key is not None and self.prev_action is not None:
             prev_info = self.prev_state_info
             
-            # Find the minimum of c(s_prev, b, s'_b) + H(s'_b) over all actions b
+            # Tìm giá trị tối thiểu của c(s_prev, b, s') + H(s') trên mọi hành động b
             min_val = float('inf')
             for b in ["WAIT", "UP", "DOWN", "LEFT", "RIGHT", "BOMB"]:
                 next_st_b = simulate_state(prev_info, b)
                 cost_b = get_action_cost(b, prev_info, next_st_b)
                 next_key_b = get_state_key(next_st_b)
                 
-                # Initialize H for child if not seen
+                # Khởi tạo H cho trạng thái con nếu chưa có
                 if next_key_b not in self.H:
                     self.H[next_key_b] = get_initial_heuristic(next_st_b)
                     
@@ -127,16 +131,15 @@ class OnlineSearchAgent(BaseAgent):
                 if val_b < min_val:
                     min_val = val_b
             
-            # Update H(s_prev)
+            # Cập nhật giá trị bộ nhớ H của trạng thái trước đó
             self.H[self.prev_state_key] = max(self.H[self.prev_state_key], min_val)
 
-        # 3. Action Selection: choose action a from current state that minimizes c(s, a, s') + H(s')
+        # 3. Lựa chọn hành động: chọn hành động a từ trạng thái hiện tại làm tối thiểu hóa f = c(s, a, s') + H(s')
         best_action = "WAIT"
         min_cost = float('inf')
 
-        # Enumerate and evaluate all actions from the current state
+        # Liệt kê các hành động khả thi tại nút gốc hiện tại
         actions = ["WAIT", "UP", "DOWN", "LEFT", "RIGHT", "BOMB"]
-        # Filter root's legal actions if provided by the environment
         legal_actions = state.get("legal_actions")
         if legal_actions:
             actions = [a for a in actions if a in legal_actions]
@@ -146,7 +149,7 @@ class OnlineSearchAgent(BaseAgent):
             cost = get_action_cost(action, state_info, next_st)
             next_key = get_state_key(next_st)
 
-            # Initialize H for child if not seen
+            # Khởi tạo H cho trạng thái con nếu chưa có
             if next_key not in self.H:
                 self.H[next_key] = get_initial_heuristic(next_st)
 
@@ -156,7 +159,7 @@ class OnlineSearchAgent(BaseAgent):
                 min_cost = f_value
                 best_action = action
 
-        # 4. Save current state and chosen action for the next step's learning update
+        # 4. Lưu lại trạng thái và hành động hiện tại để làm tài liệu học cho bước kế tiếp
         self.prev_state_key = current_state_key
         self.prev_action = best_action
         self.prev_state_info = state_info

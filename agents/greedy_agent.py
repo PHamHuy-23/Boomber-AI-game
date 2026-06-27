@@ -1,21 +1,25 @@
-"""Greedy Best-First Search Agent for Bomberman."""
+"""
+Greedy Best-First Search Agent - Agent tìm kiếm tham lam cho game Bomberman.
+
+Triết lý thiết kế:
+  Greedy Agent tìm kiếm trên cây trạng thái mô phỏng bằng cách luôn mở rộng trạng thái
+  có điểm số heuristic cao nhất trước, mà không quan tâm tới chi phí độ sâu g(n) (số bước đi).
+  Nó sử dụng hàng đợi ưu tiên với độ ưu tiên là `-score` (điểm số heuristic).
+  Điều này làm cho nó cực kỳ "tham lam", chỉ ưu tiên lợi ích trước mắt mà không quan trọng độ dài đường đi.
+"""
 import gc
 import heapq
 from typing import List, Tuple, Set, Dict, Optional
 from agents import BaseAgent
 from agents.search_utils import parse_state, simulate_state, evaluate_state
 
-
-
-
 def is_safe_tile(pos, hazard_zones, explosions) -> bool:
-    """Return True if the tile is safe (no active explosion and not in hazard zone)."""
+    """Trả về True nếu ô đó an toàn (không nổ, không nằm trong vùng nguy hiểm sắp nổ)."""
     return pos not in hazard_zones and pos not in explosions
 
-
 def manhattan(a, b) -> int:
+    """Tính khoảng cách Manhattan giữa hai điểm a và b."""
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
-
 
 def greedy_search(start: Tuple[int, int],
                   goal_set: Set[Tuple[int, int]],
@@ -28,16 +32,9 @@ def greedy_search(start: Tuple[int, int],
                   height: int,
                   danger_mode: bool = False) -> Optional[List[Tuple[int, int]]]:
     """
-    Greedy Best-First Search: always expand the node with the smallest h(n).
-    h(n) = min Manhattan distance to any target in goal_set.
-    Does NOT consider g(n), prioritizing greediness over optimality.
-
-    Structure matches A* agent for clean comparisons:
-      - Uses a priority queue (heapq) to select the node with smallest h(n) value.
-      - Maintains a closed_set of expanded nodes.
-      - Uses came_from mapping to reconstruct the path, avoiding massive memory overhead.
-      - Checks the goal test when a node is POPPED from the heap.
-      - Implements danger_mode parameter (similar to A*).
+    Thuật toán tìm kiếm Tham lam (Greedy Best-First Search) trên lưới bản đồ 2D.
+    Nó chỉ sử dụng hàm heuristic h(n) (khoảng cách Manhattan tới đích gần nhất) để chọn ô tiếp theo,
+    hoàn toàn bỏ qua chi phí g(n).
     """
     if not goal_set:
         return None
@@ -47,7 +44,7 @@ def greedy_search(start: Tuple[int, int],
     def heuristic(pos: Tuple[int, int]) -> int:
         return min(abs(pos[0] - g[0]) + abs(pos[1] - g[1]) for g in goal_set)
 
-    # open_heap contains tuple: (h_val, x, y)
+    # open_heap lưu tuple: (h_val, x, y)
     start_h = heuristic(start)
     open_heap = []
     heapq.heappush(open_heap, (start_h, start[0], start[1]))
@@ -63,7 +60,7 @@ def greedy_search(start: Tuple[int, int],
             continue
         closed_set.add(current)
 
-        # Goal test when POP
+        # Kiểm tra đích khi POP khỏi hàng đợi
         if current in goal_set:
             path = []
             node = current
@@ -77,42 +74,30 @@ def greedy_search(start: Tuple[int, int],
             nx, ny = cx + dx, cy + dy
             neighbor = (nx, ny)
 
-            # Ràng buộc 1: trong giới hạn bản đồ
+            # Kiểm tra các ràng buộc di chuyển trên bản đồ
             if not (0 <= nx < width and 0 <= ny < height):
                 continue
-
-            # Ràng buộc 2: không phải tường hoặc gạch (không thể đi qua)
             if neighbor in walls or neighbor in bricks:
                 continue
-
-            # Ràng buộc 3: không đi vào ô có bomb (trừ vị trí xuất phát)
             if neighbor in bomb_positions and neighbor != start:
                 continue
-
-            # Ràng buộc 4: không đi vào ô đang có explosion
             if neighbor in explosions:
                 continue
-
-            # Ràng buộc 5: không đi vào blast zone sắp nổ (timer <= 1)
             if neighbor in hazard_zones and hazard_zones[neighbor] <= 1:
                 continue
-
-            # Ràng buộc 6 (chỉ khi không phải danger_mode):
-            # tránh toàn bộ blast zone (kể cả timer > 1)
             if not danger_mode and neighbor in hazard_zones:
                 continue
 
             if neighbor in closed_set:
                 continue
 
-            if neighbor not in closed_set:
-                came_from[neighbor] = current
-                heapq.heappush(open_heap, (heuristic(neighbor), nx, ny))
+            came_from[neighbor] = current
+            heapq.heappush(open_heap, (heuristic(neighbor), nx, ny))
 
     return None
 
-
 def path_to_action(path) -> str:
+    """Chuyển đổi đường đi thành hành động di chuyển đầu tiên."""
     if not path or len(path) < 2:
         return "WAIT"
     cx, cy = path[0]
@@ -127,8 +112,8 @@ def path_to_action(path) -> str:
         return "DOWN"
     return "WAIT"
 
-
 def should_place_bomb(pos, enemies, bricks, walls, blast_radius, width, height) -> bool:
+    """Kiểm tra xem đặt bom tại vị trí này có hiệu quả hay không."""
     px, py = pos
     for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
         for dist in range(1, blast_radius + 1):
@@ -143,16 +128,10 @@ def should_place_bomb(pos, enemies, bricks, walls, blast_radius, width, height) 
                 return True
     return False
 
-
 class GreedyAgent(BaseAgent):
     """
-    Greedy Best-First Search Agent.
-
-    Each step:
-      1. Builds a unified goal set (safe tiles when in danger, item tiles, enemy-adjacent, brick-adjacent).
-      2. Calls greedy_search() EXACTLY ONCE to find the target.
-      3. Uses Manhattan distance h(n) to the nearest goal for search priorities (no g(n)).
-      4. Bomb placement uses the same BFS/A*/DFS safety checks.
+    GreedyAgent sử dụng thuật toán Tìm kiếm tham lam trên cây trạng thái mô phỏng.
+    Nó luôn ưu tiên đi theo hành động nào đem lại điểm số trạng thái cao nhất ngay lập tức.
     """
 
     def choose_action(self, state: dict) -> str:
@@ -166,18 +145,18 @@ class GreedyAgent(BaseAgent):
         width = info["width"]
         height = info["height"]
 
-        # Greedy Best-First Search on state space tree
-        # Priority = -evaluate_state(sim_state)
+        # Điểm số mô phỏng hiện tại
         current_sim = simulate_state(info, "WAIT")
         current_score = evaluate_state(current_sim)
         
         open_heap = []
         counter = 0
+        # Đưa trạng thái gốc vào heap. Độ ưu tiên là âm của điểm số (vì heapq là min-heap)
         heapq.heappush(open_heap, (-current_score, counter, info, [], 0))
         
         best_action = "WAIT"
         best_score = current_score
-        depth_limit = 4
+        depth_limit = 4 # Giới hạn độ sâu mô phỏng 4 bước
         max_expansions = 100
         expansions = 0
         
@@ -186,6 +165,7 @@ class GreedyAgent(BaseAgent):
             expansions += 1
             
             score = -neg_score
+            # Cập nhật hành động tốt nhất nếu đạt điểm cao hơn
             if score > best_score:
                 best_score = score
                 best_action = path[0] if path else "WAIT"
@@ -193,7 +173,7 @@ class GreedyAgent(BaseAgent):
             if depth >= depth_limit:
                 continue
                 
-            # Generate valid actions from curr_state
+            # Tạo các trạng thái tiếp theo khả thi
             c_px, c_py = curr_state["player_pos"]
             c_walls = curr_state["walls"]
             c_bricks = curr_state["bricks"]
@@ -204,13 +184,13 @@ class GreedyAgent(BaseAgent):
             
             c_bomb_positions = {(bx, by) for bx, by, _ in c_bombs}
             
-            # WAIT
+            # 1. Hành động WAIT
             wait_sim = simulate_state(curr_state, "WAIT")
             wait_score = evaluate_state(wait_sim)
             counter += 1
             heapq.heappush(open_heap, (-wait_score, counter, wait_sim, path + ["WAIT"], depth + 1))
             
-            # Movements
+            # 2. Hành động di chuyển
             for action, dx, dy in [("UP", 0, -1), ("DOWN", 0, 1), ("LEFT", -1, 0), ("RIGHT", 1, 0)]:
                 nx, ny = c_px + dx, c_py + dy
                 if 0 <= nx < c_width and 0 <= ny < c_height:
@@ -221,7 +201,7 @@ class GreedyAgent(BaseAgent):
                             counter += 1
                             heapq.heappush(open_heap, (-sim_score, counter, sim, path + [action], depth + 1))
                             
-            # BOMB
+            # 3. Hành động đặt BOMB
             if c_ammo > 0 and (c_px, c_py) not in c_bomb_positions:
                 sim = simulate_state(curr_state, "BOMB")
                 sim_score = evaluate_state(sim)

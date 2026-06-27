@@ -1,4 +1,15 @@
-"""Simulated Annealing Agent for Bomberman."""
+"""
+Simulated Annealing Agent - Agent luyện kim (Simulated Annealing) cho game Bomberman.
+
+Triết lý thiết kế:
+  Simulated Annealing là một thuật toán tìm kiếm cục bộ tối ưu hóa.
+  Tương tự như Leo đồi (Hill Climbing) nhưng thông minh hơn ở chỗ: nó chấp nhận các nước đi
+  "tệ hơn" với một xác suất nhất định là exp(ΔE / T) để giúp agent thoát khỏi cực trị cục bộ (local optima).
+  
+  Nhiệt độ T (Temperature) ban đầu được thiết lập cao (khuyến khích khám phá ngẫu nhiên), sau đó giảm dần
+  theo tỷ lệ làm nguội (cooling_rate). Khi T tiến dần về mức tối thiểu (min_temp), thuật toán chuyển dần
+  từ khám phá (exploration) sang khai thác (exploitation).
+"""
 import gc
 import math
 import random
@@ -7,8 +18,8 @@ from typing import Tuple, Dict, Set, List
 from agents import BaseAgent
 from agents.search_utils import parse_state, simulate_state, evaluate_state
 
-
 def get_hazard_zones(bombs, walls, bricks, blast_radius, width, height) -> Dict:
+    """Xác định các vùng nguy hiểm bị ảnh hưởng bởi bom."""
     hazard = {}
     for bx, by, timer in bombs:
         if (bx, by) not in hazard or timer < hazard[(bx, by)]:
@@ -26,13 +37,14 @@ def get_hazard_zones(bombs, walls, bricks, blast_radius, width, height) -> Dict:
                     break
     return hazard
 
-
 def bfs_escape(start, walls, bricks, bombs, explosions, hazard_zones, width, height) -> str:
+    """Dùng BFS để tìm hướng đi đầu tiên thoát khỏi vùng nguy hiểm hazard_zones."""
     bomb_positions = {(bx, by) for bx, by, _ in bombs}
     queue = deque([(start, [])])
     visited = {start}
     while queue:
         (cx, cy), path = queue.popleft()
+        # Tìm thấy một ô an toàn (không nguy hiểm, không có nổ)
         if (cx, cy) not in hazard_zones and (cx, cy) not in explosions:
             return path[0] if path else "WAIT"
         for dx, dy, action in [(0, -1, "UP"), (0, 1, "DOWN"), (-1, 0, "LEFT"), (1, 0, "RIGHT")]:
@@ -50,8 +62,8 @@ def bfs_escape(start, walls, bricks, bombs, explosions, hazard_zones, width, hei
                 queue.append(((nx, ny), path + [action]))
     return "WAIT"
 
-
 def should_place_bomb(pos, enemies, bricks, walls, blast_radius, width, height) -> bool:
+    """Trả về True nếu đặt bom ở vị trí hiện tại có thể gây sát thương cho địch hoặc phá gạch."""
     px, py = pos
     for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
         for dist in range(1, blast_radius + 1):
@@ -66,22 +78,17 @@ def should_place_bomb(pos, enemies, bricks, walls, blast_radius, width, height) 
                 return True
     return False
 
-
 class SimulatedAnnealingAgent(BaseAgent):
     """
-    Simulated Annealing Agent.
-    Like Hill Climbing but can accept WORSE moves with probability exp(-ΔE/T).
-    Temperature T decreases each step (cooling schedule).
-    This allows escaping local optima that Hill Climbing gets stuck in.
-    
-    Temperature starts high (lots of exploration) and decreases (more exploitation).
+    SimulatedAnnealingAgent mô phỏng thuật toán luyện kim trên không gian hành động.
+    Duyệt ngẫu nhiên trên cây trạng thái giả lập lên tới độ sâu 4 và tối ưu hóa bằng nhiệt độ giảm dần.
     """
 
     def __init__(self, initial_temp: float = 50.0, cooling_rate: float = 0.97, min_temp: float = 1.0):
         super().__init__()
-        self.temperature = initial_temp
-        self.cooling_rate = cooling_rate
-        self.min_temp = min_temp
+        self.temperature = initial_temp     # Nhiệt độ ban đầu
+        self.cooling_rate = cooling_rate     # Tốc độ làm nguội (T = T * cooling_rate)
+        self.min_temp = min_temp             # Nhiệt độ tối thiểu
 
     def choose_action(self, state: dict) -> str:
         info = parse_state(state)
@@ -95,7 +102,7 @@ class SimulatedAnnealingAgent(BaseAgent):
 
         bomb_positions = {(bx, by) for bx, by, _ in bombs}
 
-        # --- Textbook SA: Search on state-space tree up to depth 4 ---
+        # Khởi tạo trạng thái mô phỏng ban đầu tại gốc
         root_sim = simulate_state(info, "WAIT")
         root_score = evaluate_state(root_sim)
         
@@ -107,17 +114,17 @@ class SimulatedAnnealingAgent(BaseAgent):
         best_score = root_score
         
         temp = self.temperature
-        num_iterations = 20
-        depth_limit = 4
+        num_iterations = 20 # Số lượt thử mô phỏng luyện kim ở mỗi tick
+        depth_limit = 4     # Độ sâu tối đa mô phỏng
         
         for _ in range(num_iterations):
-            # Reset to root if depth limit reached
+            # Nếu vượt quá giới hạn độ sâu, reset lại về trạng thái gốc để bắt đầu nhánh mới
             if len(current_path) >= depth_limit:
                 c_sim_state = info
                 current_score = root_score
                 current_path = []
                 
-            # Generate valid actions from c_sim_state
+            # Sinh ra các hành động hợp lệ từ trạng thái hiện tại
             c_px, c_py = c_sim_state["player_pos"]
             c_walls = c_sim_state["walls"]
             c_bricks = c_sim_state["bricks"]
@@ -144,15 +151,19 @@ class SimulatedAnnealingAgent(BaseAgent):
                 current_path = []
                 continue
                 
+            # Lựa chọn ngẫu nhiên một láng giềng làm ứng viên tiếp theo
             chosen_action = random.choice(valid_actions)
             neighbor_sim = simulate_state(c_sim_state, chosen_action)
             neighbor_score = evaluate_state(neighbor_sim)
             
+            # Tính toán ΔE (Sự thay đổi về mặt chất lượng trạng thái)
             delta_e = neighbor_score - current_score
             accept = False
+            
             if delta_e > 0:
-                accept = True
+                accept = True # Chấp nhận ngay nếu láng giềng tốt hơn
             else:
+                # Nếu láng giềng tệ hơn, chấp nhận với xác suất Boltzmann P = exp(ΔE / T)
                 prob = math.exp(delta_e / max(temp, 0.001))
                 accept = random.random() < prob
                 
@@ -160,11 +171,12 @@ class SimulatedAnnealingAgent(BaseAgent):
                 c_sim_state = neighbor_sim
                 current_score = neighbor_score
                 current_path.append(chosen_action)
+                # Lưu giữ hành động tốt nhất lịch sử tìm kiếm được
                 if current_score > best_score:
                     best_score = current_score
                     best_action = current_path[0]
                     
-            # Cool down
+            # Giảm nhiệt độ dần dần (Cooling down)
             temp = max(self.min_temp, temp * self.cooling_rate)
             
         return best_action

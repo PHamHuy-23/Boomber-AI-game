@@ -1,10 +1,20 @@
-"""Minimax agent implementation for Bomberman using Alpha-Beta Pruning."""
+"""
+Minimax Agent - Agent đối kháng Minimax với Cắt tỉa Alpha-Beta (Alpha-Beta Pruning) cho game Bomberman.
+
+Triết lý thiết kế:
+  Bomberman là một trò chơi mang tính đối kháng. Agent coi kẻ địch gần nhất là đối thủ (Adversary).
+  - Lượt của Agent (MAX node): Chọn hành động tối đa hóa điểm số trạng thái của mình.
+  - Lượt của Kẻ địch (MIN node): Giả định kẻ địch sẽ chọn hành động tồi tệ nhất đối với Agent (tối thiểu hóa điểm số của Agent).
+  
+  Cắt tỉa Alpha-Beta (Alpha-Beta Pruning) được tích hợp để bỏ qua các nhánh trạng thái không tối ưu,
+  giúp tăng tốc độ tìm kiếm và cho phép duyệt sâu hơn (depth = 5).
+"""
 from typing import List, Tuple, Dict, Any
 from agents import BaseAgent
 from agents.search_utils import parse_state, simulate_state, evaluate_state
 
 def get_valid_actions(state_info: dict) -> List[str]:
-    """Get all physically valid actions for the player in the current state."""
+    """Lấy tất cả hành động hợp lệ về mặt vật lý của người chơi ở trạng thái hiện tại."""
     px, py = state_info["player_pos"]
     walls = state_info["walls"]
     bricks = state_info["bricks"]
@@ -14,7 +24,7 @@ def get_valid_actions(state_info: dict) -> List[str]:
 
     valid = ["WAIT"]
 
-    # Movement actions
+    # Các hướng di chuyển
     moves = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}
     for action, (dx, dy) in moves.items():
         nx, ny = px + dx, py + dy
@@ -22,14 +32,14 @@ def get_valid_actions(state_info: dict) -> List[str]:
             if (nx, ny) not in walls and (nx, ny) not in bricks and (nx, ny) not in bomb_positions:
                 valid.append(action)
 
-    # Bomb placement action
+    # Hành động đặt bom
     if state_info["ammo"] > 0 and (px, py) not in bomb_positions:
         valid.append("BOMB")
 
     return valid
 
 def get_enemy_valid_moves(enemy_pos: Tuple[int, int], state_info: dict) -> List[Tuple[int, int]]:
-    """Get all valid next positions for an enemy (adjacent cells and waiting)."""
+    """Lấy tất cả vị trí tiếp theo khả thi của kẻ địch (gồm đứng yên và di chuyển sang 4 ô kề cạnh)."""
     ex, ey = enemy_pos
     walls = state_info["walls"]
     bricks = state_info["bricks"]
@@ -37,7 +47,7 @@ def get_enemy_valid_moves(enemy_pos: Tuple[int, int], state_info: dict) -> List[
     bomb_positions = {(bx, by) for bx, by, _ in bombs}
     width, height = state_info["width"], state_info["height"]
 
-    valid_positions = [(ex, ey)] # Waiting is always possible
+    valid_positions = [(ex, ey)] # Đứng yên luôn khả thi
 
     for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
         nx, ny = ex + dx, ey + dy
@@ -48,7 +58,9 @@ def get_enemy_valid_moves(enemy_pos: Tuple[int, int], state_info: dict) -> List[
     return valid_positions
 
 class MinimaxAgent(BaseAgent):
-    """An agent that uses depth-limited Minimax search with Alpha-Beta pruning."""
+    """
+    MinimaxAgent sử dụng thuật toán Minimax giới hạn độ sâu kết hợp Cắt tỉa Alpha-Beta.
+    """
 
     def __init__(self, depth: int = 5):
         self.depth = depth
@@ -56,7 +68,7 @@ class MinimaxAgent(BaseAgent):
     def choose_action(self, state: dict) -> str:
         state_info = parse_state(state)
         
-        # Determine the root's legal actions (using legal_actions from state if available, but validated)
+        # Xác định các hành động hợp lệ tại gốc
         legal_actions = state.get("legal_actions")
         valid_actions = get_valid_actions(state_info)
         if legal_actions:
@@ -66,24 +78,27 @@ class MinimaxAgent(BaseAgent):
 
         best_action = "WAIT"
         best_score = -float('inf')
-        alpha = -float('inf')
-        beta = float('inf')
+        alpha = -float('inf') # Giá trị tốt nhất mà MAX node có thể đảm bảo
+        beta = float('inf')   # Giá trị tốt nhất mà MIN node có thể đảm bảo
 
-        # Alpha-Beta Search Root (MAX node)
+        # Nút gốc của cây Minimax (MAX node)
         for action in valid_actions:
             next_state = simulate_state(state_info, action)
+            # Tính điểm số dự báo từ nút MIN phía dưới
             score = self.min_value(next_state, alpha, beta, self.depth - 1)
             
             if score > best_score:
                 best_score = score
                 best_action = action
             
+            # Cập nhật alpha
             alpha = max(alpha, best_score)
             
         return best_action
 
     def max_value(self, state: dict, alpha: float, beta: float, depth: int) -> float:
-        """MAX node: maximizes player's utility."""
+        """MAX node: Đại diện cho lựa chọn tối ưu của người chơi để tối đa hóa điểm số."""
+        # Điều kiện dừng: đạt giới hạn độ sâu hoặc người chơi bị trúng nổ
         if depth == 0 or state["player_pos"] in state["explosions"]:
             return evaluate_state(state)
 
@@ -95,22 +110,23 @@ class MinimaxAgent(BaseAgent):
         for action in valid_actions:
             next_state = simulate_state(state, action)
             v = max(v, self.min_value(next_state, alpha, beta, depth - 1))
+            # Cắt tỉa Alpha-Beta
             if v >= beta:
                 return v
             alpha = max(alpha, v)
         return v
 
     def min_value(self, state: dict, alpha: float, beta: float, depth: int) -> float:
-        """MIN node: minimizes player's utility using adversarial enemy decisions."""
+        """MIN node: Đại diện cho hành động đối kháng của đối thủ để tối thiểu hóa điểm số của người chơi."""
         if depth == 0 or state["player_pos"] in state["explosions"]:
             return evaluate_state(state)
 
         enemies = state["enemies"]
         if not enemies:
-            # If no enemies are present, run a MAX node at the next level
+            # Nếu không có kẻ địch trên bản đồ, chuyển tiếp thành MAX node ở lượt sau
             return self.max_value(state, alpha, beta, depth - 1)
 
-        # Adversary: model the enemy closest to the player
+        # Mô hình hóa đối thủ: Chọn kẻ địch có khoảng cách Manhattan gần người chơi nhất
         px, py = state["player_pos"]
         closest_idx = 0
         min_dist = float('inf')
@@ -125,12 +141,14 @@ class MinimaxAgent(BaseAgent):
 
         v = float('inf')
         for next_pos in valid_moves:
-            # Simulate the enemy's move in the state dictionary
+            # Giả lập vị trí di chuyển tiếp theo của kẻ địch trong trạng thái game
             next_state = {**state}
             next_state["enemies"] = list(state["enemies"])
             next_state["enemies"][closest_idx] = next_pos
             
+            # Tính toán nhánh MAX tiếp theo
             v = min(v, self.max_value(next_state, alpha, beta, depth - 1))
+            # Cắt tỉa Alpha-Beta
             if v <= alpha:
                 return v
             beta = min(beta, v)

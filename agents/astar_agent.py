@@ -1,4 +1,13 @@
-"""A* Agent - A-Star Search agent for Bomberman."""
+"""
+A* Agent - Agent tìm kiếm A* (A-Star Search) cho game Bomberman.
+
+Triết lý thiết kế:
+  A* tìm kiếm trên cây trạng thái mô phỏng bằng cách dùng hàng đợi ưu tiên (Priority Queue / Min-Heap).
+  Độ ưu tiên được tính bằng công thức: f(n) = g(n) + h(n)
+    - g(n) = W * depth (chi phí tích lũy để đi đến độ sâu hiện tại, với W = 100.0)
+    - h(n) = -evaluate_state(sim_state) (ước lượng chi phí còn lại, giá trị âm của điểm số heuristic)
+  Điều này giúp agent tìm kiếm hành động tối ưu một cách hiệu quả hơn bằng cách bỏ qua các nhánh trạng thái kém hứa hẹn.
+"""
 import gc
 import heapq
 from collections import deque
@@ -6,17 +15,13 @@ from typing import List, Tuple, Set, Dict, Optional
 from agents import BaseAgent
 from agents.search_utils import parse_state, simulate_state, evaluate_state
 
-
-
-
 def is_safe_tile(pos, hazard_zones, explosions) -> bool:
-    """Return True if the tile is safe (no active explosion and not in hazard zone)."""
+    """Trả về True nếu ô đó an toàn (không nổ, không nằm trong vùng bom đe dọa)."""
     return pos not in hazard_zones and pos not in explosions
 
-
 def manhattan(a, b) -> int:
+    """Tính khoảng cách Manhattan giữa hai điểm a và b."""
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
-
 
 def astar(start: Tuple[int, int],
           goal_set: Set[Tuple[int, int]],
@@ -29,40 +34,23 @@ def astar(start: Tuple[int, int],
           height: int,
           danger_mode: bool = False) -> Optional[List[Tuple[int, int]]]:
     """
-    A* Search thuần túy (Priority Queue, heuristic Manhattan) từ `start`
-    đến tile tối ưu nhất trong `goal_set`. Trả về đường đi (list of positions) hoặc None.
-
-    Bản chất thuật toán A*:
-      - Sử dụng Min-Heap (heapq) làm open_set để luôn expand node có f = g + h nhỏ nhất trước.
-      - g(n): chi phí thực từ start đến node n (mỗi bước di chuyển = 1).
-      - h(n): heuristic admissible (không đánh giá cao hơn thực tế) là Manhattan distance
-              tới goal gần nhất trong goal_set.
-      - closed_set: tập hợp các node đã được expand (popped khỏi heap) để tránh expand lại.
-      - came_from: lưu quan hệ cha-con để reconstruct path, tránh lưu trữ path trực tiếp
-                   trong heap làm phình to bộ nhớ (Memory O(V^2)).
-      - Goal test: thực hiện khi POP node khỏi heap (chuẩn giáo khoa).
-
-    Ràng buộc được encode trực tiếp vào điều kiện duyệt node:
-      - Tường / gạch                        → không expand.
-      - Tile đang có explosion               → không expand.
-      - Tile trong blast zone timer <= 1     → không expand.
-      - Tile có bomb đang đặt               → không expand (trừ vị trí xuất phát).
-
-    Tham số `danger_mode`:
-      - False (mặc định): tránh toàn bộ hazard zone (bao gồm timer > 1).
-      - True: A* thoát nguy hiểm — cho phép đi qua hazard zone có timer > 1
-              để tìm lối ra; vẫn chặn explosion và timer <= 1.
+    Thuật toán tìm kiếm A* trên lưới bản đồ 2D.
+    Tìm đường đi ngắn nhất từ `start` tới ô tối ưu trong `goal_set`.
+    
+    Công thức: f(n) = g(n) + h(n)
+      - g(n): số bước thực tế từ start đến ô hiện tại.
+      - h(n): khoảng cách Manhattan ngắn nhất tới bất kỳ ô đích nào trong goal_set.
     """
     if not goal_set:
         return None
 
     bomb_positions = {(bx, by) for bx, by, _ in bombs}
 
+    # Hàm heuristic ước lượng khoảng cách tới đích gần nhất
     def heuristic(pos: Tuple[int, int]) -> int:
         return min(abs(pos[0] - g[0]) + abs(pos[1] - g[1]) for g in goal_set)
 
-    # open_set chứa tuple: (f, g, x, y)
-    # Dùng x, y để tiebreaking, tránh so sánh tuple chứa node/objects
+    # open_heap lưu tuple: (f_score, g_score, x, y)
     start_h = heuristic(start)
     open_heap = []
     heapq.heappush(open_heap, (start_h, 0, start[0], start[1]))
@@ -79,9 +67,8 @@ def astar(start: Tuple[int, int],
             continue
         closed_set.add(current)
 
-        # Goal test khi POP (sau khi lọc closed_set để đảm bảo tối ưu)
+        # Kiểm tra đích khi POP để đảm bảo đường đi tối ưu nhất
         if current in goal_set:
-            # Reconstruct path từ came_from
             path = []
             node = current
             while node != start:
@@ -90,35 +77,23 @@ def astar(start: Tuple[int, int],
             path.append(start)
             return list(reversed(path))
 
-        # Luôn lấy chi phí g_score tối ưu thực tế từ start thay vì g_heap trong tuple cũ
         g = g_score.get(current, float('inf'))
 
         for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
             nx, ny = cx + dx, cy + dy
             neighbor = (nx, ny)
 
-            # Ràng buộc 1: trong giới hạn bản đồ
+            # Kiểm tra các ràng buộc bản đồ
             if not (0 <= nx < width and 0 <= ny < height):
                 continue
-
-            # Ràng buộc 2: không phải tường hoặc gạch (không thể đi qua)
             if neighbor in walls or neighbor in bricks:
                 continue
-
-            # Ràng buộc 3: không đi vào ô có bomb (trừ vị trí xuất phát)
             if neighbor in bomb_positions and neighbor != start:
                 continue
-
-            # Ràng buộc 4: không đi vào ô đang có explosion
             if neighbor in explosions:
                 continue
-
-            # Ràng buộc 5: không đi vào blast zone sắp nổ (timer <= 1)
             if neighbor in hazard_zones and hazard_zones[neighbor] <= 1:
                 continue
-
-            # Ràng buộc 6 (chỉ khi không phải danger_mode):
-            # tránh toàn bộ blast zone (kể cả timer > 1)
             if not danger_mode and neighbor in hazard_zones:
                 continue
 
@@ -130,12 +105,13 @@ def astar(start: Tuple[int, int],
                 g_score[neighbor] = tentative_g
                 came_from[neighbor] = current
                 h_val = heuristic(neighbor)
+                # Đưa vào heap với độ ưu tiên f = tentative_g + h_val
                 heapq.heappush(open_heap, (tentative_g + h_val, tentative_g, nx, ny))
 
     return None
 
-
 def path_to_action(path) -> str:
+    """Chuyển đổi đường đi thành hành động di chuyển đầu tiên."""
     if not path or len(path) < 2:
         return "WAIT"
     cx, cy = path[0]
@@ -150,8 +126,8 @@ def path_to_action(path) -> str:
         return "DOWN"
     return "WAIT"
 
-
 def should_place_bomb(pos, enemies, bricks, walls, blast_radius, width, height) -> bool:
+    """Kiểm tra xem đặt bom tại vị trí này có hiệu quả hay không."""
     px, py = pos
     for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
         for dist in range(1, blast_radius + 1):
@@ -166,19 +142,10 @@ def should_place_bomb(pos, enemies, bricks, walls, blast_radius, width, height) 
                 return True
     return False
 
-
 class AStarAgent(BaseAgent):
     """
-    A* Agent — A-Star Search là cơ chế quyết định trung tâm.
-
-    Mỗi bước:
-      1. Xây dựng UNIFIED GOAL SET: tập hợp tất cả tile đáng đến
-         (safe tiles khi nguy hiểm, item tiles, enemy-adjacent, brick-adjacent).
-      2. Gọi MỘT lần astar() duy nhất → tìm tile tối ưu nhất trong goal set
-         dựa trên f = g + h (Manhattan distance tới goal gần nhất).
-      3. Nếu đã đứng tại goal (cạnh enemy/brick) VÀ có escape → đặt BOMB.
-      4. A* expand node có f = g + h nhỏ nhất trước. Do h là admissible, A* đảm
-         bảo tìm đường đi tối ưu nhanh hơn BFS (không duyệt mù quáng mọi hướng).
+    AStarAgent tìm kiếm trên cây trạng thái mô phỏng bằng thuật toán A*.
+    Sử dụng hàng đợi ưu tiên để luôn mở rộng trạng thái tiềm năng nhất.
     """
 
     def choose_action(self, state: dict) -> str:
@@ -192,20 +159,21 @@ class AStarAgent(BaseAgent):
         width = info["width"]
         height = info["height"]
 
-        # A* Search on state space tree
-        # Priority = W * depth - evaluate_state(sim_state)
+        # Điểm của trạng thái WAIT hiện tại
         current_sim = simulate_state(info, "WAIT")
         current_score = evaluate_state(current_sim)
         
+        # W = Trọng số phạt cho mỗi bước đi sâu hơn (tương ứng g(n))
         W = 100.0
         open_heap = []
         counter = 0
+        # Đưa trạng thái gốc vào hàng đợi: (f_value, counter, sim_state, path, depth)
         heapq.heappush(open_heap, (-current_score, counter, info, [], 0))
         
         best_action = "WAIT"
         best_score = current_score
-        depth_limit = 4
-        max_expansions = 100
+        depth_limit = 4 # Độ sâu tối đa mô phỏng 4 bước
+        max_expansions = 100 # Giới hạn số nút được duyệt để bảo đảm thời gian thực tế
         expansions = 0
         
         while open_heap and expansions < max_expansions:
@@ -217,6 +185,7 @@ class AStarAgent(BaseAgent):
             else:
                 score = current_score
 
+            # Cập nhật hành động tốt nhất nếu đạt điểm cao hơn
             if score > best_score:
                 best_score = score
                 best_action = path[0] if path else "WAIT"
@@ -224,7 +193,7 @@ class AStarAgent(BaseAgent):
             if depth >= depth_limit:
                 continue
                 
-            # Generate valid actions from curr_state
+            # Tạo các trạng thái tiếp theo khả thi
             c_px, c_py = curr_state["player_pos"]
             c_walls = curr_state["walls"]
             c_bricks = curr_state["bricks"]
@@ -235,14 +204,15 @@ class AStarAgent(BaseAgent):
             
             c_bomb_positions = {(bx, by) for bx, by, _ in c_bombs}
             
-            # WAIT
+            # 1. Hành động WAIT
             wait_sim = simulate_state(curr_state, "WAIT")
             wait_score = evaluate_state(wait_sim)
+            # f(n) = W * depth - score
             wait_priority = W * (depth + 1) - wait_score
             counter += 1
             heapq.heappush(open_heap, (wait_priority, counter, wait_sim, path + ["WAIT"], depth + 1))
             
-            # Movements
+            # 2. Hành động di chuyển
             for action, dx, dy in [("UP", 0, -1), ("DOWN", 0, 1), ("LEFT", -1, 0), ("RIGHT", 1, 0)]:
                 nx, ny = c_px + dx, c_py + dy
                 if 0 <= nx < c_width and 0 <= ny < c_height:
@@ -254,7 +224,7 @@ class AStarAgent(BaseAgent):
                             counter += 1
                             heapq.heappush(open_heap, (sim_priority, counter, sim, path + [action], depth + 1))
                             
-            # BOMB
+            # 3. Hành động đặt BOMB
             if c_ammo > 0 and (c_px, c_py) not in c_bomb_positions:
                 sim = simulate_state(curr_state, "BOMB")
                 sim_score = evaluate_state(sim)
