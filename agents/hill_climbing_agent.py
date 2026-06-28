@@ -19,112 +19,92 @@ from agents.search_utils import parse_state, simulate_state, evaluate_state
 
 class HillClimbingAgent(BaseAgent):
     """
-    HillClimbingAgent sử dụng tìm kiếm leo đồi dốc nhất (Steepest Ascent Hill Climbing)
-    để đưa ra quyết định di chuyển tối ưu cục bộ ngay lập tức.
+    HillClimbingAgent mô phỏng thuật toán leo đồi dốc nhất (Steepest-Ascent Hill Climbing) chuẩn sách giáo khoa.
+    Tìm kiếm trên không gian đường đi 4 bước bằng cách chọn láng giềng tốt nhất tại mỗi lượt lặp cho đến khi đạt cực trị cục bộ.
     """
 
-    def __init__(self):
+    def __init__(self, max_steps: int = 30):
         super().__init__()
-        self.sideways_count = 0     # Bộ đếm số lần di chuyển ngang liên tục
-        self.sideways_limit = 5     # Giới hạn số lần di chuyển ngang liên tục
+        self.max_steps = max_steps
+
+    def is_action_consistent(self, parent_state: dict, next_state: dict, action: str) -> bool:
+        """Kiểm tra tính nhất quán vật lý và an toàn của bước đi."""
+        px, py = next_state["player_pos"]
+        parent_px, parent_py = parent_state["player_pos"]
+        walls = parent_state["walls"]
+        bricks = parent_state["bricks"]
+        bombs = parent_state["bombs"]
+        bomb_positions = {(bx, by) for bx, by, _ in bombs}
+        width, height = parent_state["width"], parent_state["height"]
+
+        if action in ["UP", "DOWN", "LEFT", "RIGHT"]:
+            if not (0 <= px < width and 0 <= py < height):
+                return False
+            if (px, py) in walls or (px, py) in bricks:
+                return False
+            if (px, py) in bomb_positions and (px, py) != (parent_px, parent_py):
+                return False
+
+        if action == "BOMB":
+            if parent_state["ammo"] <= 0:
+                return False
+            if (parent_px, parent_py) in bomb_positions:
+                return False
+
+        if (px, py) in next_state["explosions"]:
+            return False
+
+        hazard_zones = next_state.get("hazard_zones", {})
+        if (px, py) in hazard_zones:
+            if hazard_zones[(px, py)] <= 1:
+                return False
+
+        return True
+
+    def evaluate_path(self, path: List[str], initial_state: dict) -> float:
+        """Đánh giá toàn bộ đường đi 4 bước từ trạng thái ban đầu."""
+        current_state = initial_state
+        for step_idx, action in enumerate(path):
+            next_state = simulate_state(current_state, action)
+            if not self.is_action_consistent(current_state, next_state, action):
+                # Phạt nặng nếu chuỗi hành động không hợp lệ hoặc gây tự sát tức thời
+                return -1000000.0 - (len(path) - step_idx) * 10000.0
+            current_state = next_state
+        return evaluate_state(current_state)
 
     def choose_action(self, state: dict) -> str:
         info = parse_state(state)
-        px, py = info["player_pos"]
-        walls = info["walls"]
-        bricks = info["bricks"]
-        bombs = info["bombs"]
-        explosions = info["explosions"]
-        enemies = info["enemies"]
-        items = info["items"]
-        ammo = info["ammo"]
-        blast_radius = info["blast_radius"]
-        width = info["width"]
-        height = info["height"]
-
-        bomb_positions = {(bx, by) for bx, by, _ in bombs}
-
-        # 1. Đánh giá trạng thái hiện tại (giả lập hành động chờ WAIT)
-        current_sim = simulate_state(info, "WAIT")
-        current_score = evaluate_state(current_sim)
-
-        # 2. Sinh ra tất cả các trạng thái láng giềng kế tiếp (successors) khả thi
-        moves = [("UP", 0, -1), ("DOWN", 0, 1), ("LEFT", -1, 0), ("RIGHT", 1, 0)]
-        successors = []
-
-        # Láng giềng WAIT
-        successors.append(("WAIT", current_sim, current_score))
-
-        # Láng giềng di chuyển (UP, DOWN, LEFT, RIGHT)
-        for action, dx, dy in moves:
-            nx, ny = px + dx, py + dy
-            if 0 <= nx < width and 0 <= ny < height:
-                if (nx, ny) not in walls and (nx, ny) not in bricks:
-                    if (nx, ny) not in bomb_positions or (nx, ny) == (px, py):
-                        sim = simulate_state(info, action)
-                        score = evaluate_state(sim)
-                        successors.append((action, sim, score))
-
-        # Láng giềng đặt bom BOMB
-        if ammo > 0 and (px, py) not in bomb_positions:
-            sim = simulate_state(info, "BOMB")
-            score = evaluate_state(sim)
-            successors.append(("BOMB", sim, score))
-
-        # 3. Logic quyết định leo đồi dốc nhất (Steepest-Ascent decision logic)
-        # Tìm các láng giềng có điểm số heuristic cao nhất
-        best_score = -float("inf")
-        best_actions = []
-
-        for action, sim, score in successors:
-            if score > best_score:
-                best_score = score
-                best_actions = [action]
-            elif score == best_score:
-                best_actions.append(action)
-
-        chosen_action = "WAIT"
-
-        # Trường hợp 1: Có láng giềng tốt hơn trạng thái hiện tại (Leo đồi)
-        if best_score > current_score:
-            self.sideways_count = 0
-            chosen_action = random.choice(best_actions)
-
-        # Trường hợp 2: Láng giềng tốt nhất bằng điểm hiện tại (Di chuyển ngang - Sideways move)
-        elif best_score == current_score:
-            if self.sideways_count < self.sideways_limit:
-                self.sideways_count += 1
-                chosen_action = random.choice(best_actions) # Chấp nhận đi ngang
+        
+        # Khởi tạo với một đường đi mặc định an toàn: ["WAIT", "WAIT", "WAIT", "WAIT"]
+        current_path = ["WAIT", "WAIT", "WAIT", "WAIT"]
+        current_score = self.evaluate_path(current_path, info)
+        
+        domain = ["WAIT", "UP", "DOWN", "LEFT", "RIGHT", "BOMB"]
+        
+        # Vòng lặp leo đồi dốc nhất (Steepest-Ascent)
+        for _ in range(self.max_steps):
+            best_neighbor_path = None
+            best_neighbor_score = -float('inf')
+            
+            # Khảo sát toàn bộ 20 láng giềng (đột biến 1 hành động trong chuỗi 4 bước)
+            for idx in range(len(current_path)):
+                for action in domain:
+                    if action == current_path[idx]:
+                        continue
+                    neighbor_path = list(current_path)
+                    neighbor_path[idx] = action
+                    
+                    score = self.evaluate_path(neighbor_path, info)
+                    if score > best_neighbor_score:
+                        best_neighbor_score = score
+                        best_neighbor_path = neighbor_path
+            
+            # Nếu láng giềng tốt nhất tốt hơn hẳn trạng thái hiện tại, leo lên
+            if best_neighbor_score > current_score:
+                current_path = best_neighbor_path
+                current_score = best_neighbor_score
             else:
-                # Nếu vượt quá giới hạn đi ngang, ép chọn ngẫu nhiên một nước đi khác để phá vỡ bế tắc
-                self.sideways_count = 0
-                valid_moves = [a for a, _, _ in successors if a != "WAIT"]
-                if valid_moves:
-                    chosen_action = random.choice(valid_moves)
-                else:
-                    chosen_action = "WAIT"
-
-        # Trường hợp 3: Đang ở Cực trị cục bộ (Tất cả láng giềng đều tệ hơn hiện tại) -> Khởi động lại ngẫu nhiên
-        else:
-            self.sideways_count = 0
-            # Lọc ra các di chuyển an toàn (không đi vào lửa nổ hoặc bom sắp nổ)
-            safe_moves = []
-            for action, sim, score in successors:
-                sim_pos = sim["player_pos"]
-                sim_hazard = sim["hazard_zones"]
-                sim_explosions = sim["explosions"]
-                if sim_pos not in sim_explosions and (sim_pos not in sim_hazard or sim_hazard[sim_pos] > 1):
-                    safe_moves.append(action)
-
-            # Chọn ngẫu nhiên một hành động an toàn làm đột biến
-            if safe_moves:
-                chosen_action = random.choice(safe_moves)
-            else:
-                # Nếu không có hành động nào an toàn tuyệt đối, chọn ngẫu nhiên hành động hợp lệ bất kỳ
-                valid_moves = [a for a, _, _ in successors]
-                if valid_moves:
-                    chosen_action = random.choice(valid_moves)
-                else:
-                    chosen_action = "WAIT"
-
-        return chosen_action
+                # Đã đạt Cực trị cục bộ (Local Maximum), dừng tìm kiếm
+                break
+                
+        return current_path[0]

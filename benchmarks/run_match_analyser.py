@@ -213,7 +213,7 @@ def run_analyzed_match(agent_names: List[str], seed: int, fog_of_war: bool = Fal
                         items[(x, y)] = 2
 
             enemy_positions = [(a.x, a.y) for aid, a in engine.state.agents.items() if aid != pid and a.is_alive]
-            bomb_positions = [(b.x, b.y, max(1, b.timer - 3)) for b in engine.state.bombs]
+            bomb_positions = [(b.x, b.y, max(1, b.timer - 3), b.range) for b in engine.state.bombs]
             explosions = list(engine.state.explosions)
 
             # Apply Fog of War filtering

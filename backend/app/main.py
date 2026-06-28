@@ -204,9 +204,9 @@ def step_game(req: StepRequest):
                         if aid != agent_id and a.is_alive
                     ]
                     
-                    # Map engine bomb timer to agent timer
+                    # Map engine bomb timer to agent timer and include range
                     bomb_positions = [
-                        (b.x, b.y, max(1, b.timer - 3)) for b in global_engine.state.bombs
+                        (b.x, b.y, max(1, b.timer - 3), b.range) for b in global_engine.state.bombs
                     ]
                     
                     explosions = list(global_engine.state.explosions)

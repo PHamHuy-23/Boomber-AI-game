@@ -80,103 +80,101 @@ def should_place_bomb(pos, enemies, bricks, walls, blast_radius, width, height) 
 
 class SimulatedAnnealingAgent(BaseAgent):
     """
-    SimulatedAnnealingAgent mô phỏng thuật toán luyện kim trên không gian hành động.
-    Duyệt ngẫu nhiên trên cây trạng thái giả lập lên tới độ sâu 4 và tối ưu hóa bằng nhiệt độ giảm dần.
+    SimulatedAnnealingAgent mô phỏng thuật toán luyện kim (Simulated Annealing) chuẩn sách giáo khoa.
+    Tìm kiếm trên không gian đường đi hoàn chỉnh độ dài 4 bước bằng cách biến đổi (đột biến) hành động.
     """
 
-    def __init__(self, initial_temp: float = 50.0, cooling_rate: float = 0.97, min_temp: float = 1.0):
+    def __init__(self, initial_temp: float = 100.0, cooling_rate: float = 0.95, min_temp: float = 0.05, max_iterations: int = 150):
         super().__init__()
-        self.temperature = initial_temp     # Nhiệt độ ban đầu
-        self.cooling_rate = cooling_rate     # Tốc độ làm nguội (T = T * cooling_rate)
-        self.min_temp = min_temp             # Nhiệt độ tối thiểu
+        self.initial_temp = initial_temp
+        self.cooling_rate = cooling_rate
+        self.min_temp = min_temp
+        self.max_iterations = max_iterations
+
+    def is_action_consistent(self, parent_state: dict, next_state: dict, action: str) -> bool:
+        """Kiểm tra tính nhất quán vật lý và an toàn của bước đi."""
+        px, py = next_state["player_pos"]
+        parent_px, parent_py = parent_state["player_pos"]
+        walls = parent_state["walls"]
+        bricks = parent_state["bricks"]
+        bombs = parent_state["bombs"]
+        bomb_positions = {(bx, by) for bx, by, _ in bombs}
+        width, height = parent_state["width"], parent_state["height"]
+
+        if action in ["UP", "DOWN", "LEFT", "RIGHT"]:
+            if not (0 <= px < width and 0 <= py < height):
+                return False
+            if (px, py) in walls or (px, py) in bricks:
+                return False
+            if (px, py) in bomb_positions and (px, py) != (parent_px, parent_py):
+                return False
+
+        if action == "BOMB":
+            if parent_state["ammo"] <= 0:
+                return False
+            if (parent_px, parent_py) in bomb_positions:
+                return False
+
+        if (px, py) in next_state["explosions"]:
+            return False
+
+        hazard_zones = next_state.get("hazard_zones", {})
+        if (px, py) in hazard_zones:
+            if hazard_zones[(px, py)] <= 1:
+                return False
+
+        return True
+
+    def evaluate_path(self, path: List[str], initial_state: dict) -> float:
+        """Đánh giá toàn bộ đường đi 4 bước từ trạng thái ban đầu."""
+        current_state = initial_state
+        for step_idx, action in enumerate(path):
+            next_state = simulate_state(current_state, action)
+            if not self.is_action_consistent(current_state, next_state, action):
+                # Phạt nặng nếu chuỗi hành động không hợp lệ hoặc gây tự sát tức thời
+                return -1000000.0 - (len(path) - step_idx) * 10000.0
+            current_state = next_state
+        return evaluate_state(current_state)
 
     def choose_action(self, state: dict) -> str:
         info = parse_state(state)
-        px, py = info["player_pos"]
-        walls = info["walls"]
-        bricks = info["bricks"]
-        bombs = info["bombs"]
-        ammo = info["ammo"]
-        width = info["width"]
-        height = info["height"]
-
-        bomb_positions = {(bx, by) for bx, by, _ in bombs}
-
-        # Khởi tạo trạng thái mô phỏng ban đầu tại gốc
-        root_sim = simulate_state(info, "WAIT")
-        root_score = evaluate_state(root_sim)
         
-        c_sim_state = info
-        current_score = root_score
-        current_path = []
+        # Khởi tạo với một đường đi mặc định an toàn: ["WAIT", "WAIT", "WAIT", "WAIT"]
+        current_path = ["WAIT", "WAIT", "WAIT", "WAIT"]
+        current_score = self.evaluate_path(current_path, info)
         
-        best_action = "WAIT"
-        best_score = root_score
+        best_path = list(current_path)
+        best_score = current_score
         
-        temp = self.temperature
-        num_iterations = 20 # Số lượt thử mô phỏng luyện kim ở mỗi tick
-        depth_limit = 4     # Độ sâu tối đa mô phỏng
+        temp = self.initial_temp
+        domain = ["WAIT", "UP", "DOWN", "LEFT", "RIGHT", "BOMB"]
         
-        for _ in range(num_iterations):
-            # Nếu vượt quá giới hạn độ sâu, reset lại về trạng thái gốc để bắt đầu nhánh mới
-            if len(current_path) >= depth_limit:
-                c_sim_state = info
-                current_score = root_score
-                current_path = []
+        # Vòng lặp tối ưu hóa Simulated Annealing
+        for _ in range(self.max_iterations):
+            if temp < self.min_temp:
+                break
                 
-            # Sinh ra các hành động hợp lệ từ trạng thái hiện tại
-            c_px, c_py = c_sim_state["player_pos"]
-            c_walls = c_sim_state["walls"]
-            c_bricks = c_sim_state["bricks"]
-            c_bombs = c_sim_state["bombs"]
-            c_ammo = c_sim_state["ammo"]
-            c_width = c_sim_state["width"]
-            c_height = c_sim_state["height"]
+            # Tạo đường đi láng giềng bằng cách thay đổi ngẫu nhiên một hành động trong chuỗi
+            neighbor_path = list(current_path)
+            mutate_idx = random.randint(0, len(current_path) - 1)
+            new_action = random.choice([a for a in domain if a != current_path[mutate_idx]])
+            neighbor_path[mutate_idx] = new_action
             
-            c_bomb_positions = {(bx, by) for bx, by, _ in c_bombs}
-            
-            valid_actions = ["WAIT"]
-            for action, dx, dy in [("UP", 0, -1), ("DOWN", 0, 1), ("LEFT", -1, 0), ("RIGHT", 1, 0)]:
-                nx, ny = c_px + dx, c_py + dy
-                if 0 <= nx < c_width and 0 <= ny < c_height:
-                    if (nx, ny) not in c_walls and (nx, ny) not in c_bricks:
-                        if (nx, ny) not in c_bomb_positions or (nx, ny) == (c_px, c_py):
-                            valid_actions.append(action)
-            if c_ammo > 0 and (c_px, c_py) not in c_bomb_positions:
-                valid_actions.append("BOMB")
-                
-            if not valid_actions:
-                c_sim_state = info
-                current_score = root_score
-                current_path = []
-                continue
-                
-            # Lựa chọn ngẫu nhiên một láng giềng làm ứng viên tiếp theo
-            chosen_action = random.choice(valid_actions)
-            neighbor_sim = simulate_state(c_sim_state, chosen_action)
-            neighbor_score = evaluate_state(neighbor_sim)
-            
-            # Tính toán ΔE (Sự thay đổi về mặt chất lượng trạng thái)
+            neighbor_score = self.evaluate_path(neighbor_path, info)
             delta_e = neighbor_score - current_score
-            accept = False
             
             if delta_e > 0:
-                accept = True # Chấp nhận ngay nếu láng giềng tốt hơn
-            else:
-                # Nếu láng giềng tệ hơn, chấp nhận với xác suất Boltzmann P = exp(ΔE / T)
-                prob = math.exp(delta_e / max(temp, 0.001))
-                accept = random.random() < prob
-                
-            if accept:
-                c_sim_state = neighbor_sim
+                current_path = neighbor_path
                 current_score = neighbor_score
-                current_path.append(chosen_action)
-                # Lưu giữ hành động tốt nhất lịch sử tìm kiếm được
                 if current_score > best_score:
                     best_score = current_score
-                    best_action = current_path[0]
+                    best_path = list(current_path)
+            else:
+                prob = math.exp(delta_e / temp)
+                if random.random() < prob:
+                    current_path = neighbor_path
+                    current_score = neighbor_score
                     
-            # Giảm nhiệt độ dần dần (Cooling down)
-            temp = max(self.min_temp, temp * self.cooling_rate)
+            temp *= self.cooling_rate
             
-        return best_action
+        return best_path[0]

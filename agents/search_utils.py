@@ -77,17 +77,24 @@ def parse_state(state: dict) -> dict:
             else:
                 enemies.append((e.x, e.y))
                 
-    # Phân tích danh sách bom hiện tại
+    # Phân tích danh sách bom hiện tại (bombs chứa 3-tuples thông thường để tránh lỗi unpack của các agent khác)
     bombs = []
+    bomb_ranges = {}
     raw = state.get("bombs") or state.get("bomb_positions")
     if raw:
         for b in raw:
             if isinstance(b, dict):
-                bombs.append((b.get('x'), b.get('y'), b.get('timer', 4)))
+                x, y, timer = b.get('x'), b.get('y'), b.get('timer', 4)
+                r = b.get('range', None)
             elif isinstance(b, (list, tuple)):
-                bombs.append((b[0], b[1], b[2] if len(b) >= 3 else 4))
+                x, y, timer = b[0], b[1], b[2] if len(b) >= 3 else 4
+                r = b[3] if len(b) >= 4 else None
             else:
-                bombs.append((b.x, b.y, b.timer))
+                x, y, timer = b.x, b.y, b.timer
+                r = getattr(b, 'range', None)
+            bombs.append((x, y, timer))
+            if r is not None:
+                bomb_ranges[(x, y)] = r
                 
     # Phân tích vùng đang bùng nổ
     explosions = set()
@@ -119,6 +126,7 @@ def parse_state(state: dict) -> dict:
         "bricks": bricks,
         "enemies": enemies,
         "bombs": bombs,
+        "bomb_ranges": bomb_ranges,
         "explosions": explosions,
         "items": items,
         "ammo": state.get("ammo", 1),
@@ -127,20 +135,25 @@ def parse_state(state: dict) -> dict:
         "height": height
     }
 
-def get_hazard_zones(bombs, walls, bricks, blast_radius, width, height) -> Dict:
+def get_hazard_zones(bombs, walls, bricks, blast_radius, width, height, bomb_ranges=None) -> Dict:
     """
     Xác định các vùng nguy hiểm (hazard zones) bị ảnh hưởng bởi bom.
     Trả về dict ánh xạ mỗi tọa độ bị đe dọa tới thời gian còn lại trước khi bom nổ (timer nhỏ nhất).
     """
+    if bomb_ranges is None:
+        bomb_ranges = {}
     hazard = {}
     for bx, by, timer in bombs:
+        # Sử dụng bán kính nổ thực tế của quả bom nếu có trong bomb_ranges, ngược lại dùng blast_radius của bản thân
+        b_range = bomb_ranges.get((bx, by), blast_radius)
+        
         # Bản thân ô đặt bom là vùng nguy hiểm
         if (bx, by) not in hazard or timer < hazard[(bx, by)]:
             hazard[(bx, by)] = timer
             
         # Lan truyền tia lửa theo 4 hướng (lên, xuống, trái, phải)
         for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-            for dist in range(1, blast_radius + 1):
+            for dist in range(1, b_range + 1):
                 tx, ty = bx + dx * dist, by + dy * dist
                 if not (0 <= tx < width and 0 <= ty < height):
                     break
@@ -163,6 +176,7 @@ def simulate_state(info: dict, action: str) -> dict:
     enemies = list(info["enemies"])
     items = dict(info["items"])
     bombs = list(info["bombs"])
+    bomb_ranges = dict(info.get("bomb_ranges", {}))
     explosions = set(info["explosions"])
     ammo = info["ammo"]
     blast_radius = info["blast_radius"]
@@ -171,6 +185,7 @@ def simulate_state(info: dict, action: str) -> dict:
 
     sim_player_pos = (px, py)
     sim_bombs = list(bombs)
+    sim_bomb_ranges = dict(bomb_ranges)
     sim_ammo = ammo
     sim_bricks = set(bricks)
     sim_enemies = list(enemies)
@@ -185,14 +200,16 @@ def simulate_state(info: dict, action: str) -> dict:
             del sim_items[sim_player_pos] # Ăn vật phẩm
     elif action == "BOMB":
         sim_bombs.append((px, py, 4)) # Đặt bom mới với thời gian chờ nổ là 4 tick
+        sim_bomb_ranges[(px, py)] = blast_radius
         sim_ammo = ammo - 1
 
     # 2. Cập nhật đếm ngược thời gian của bom và xử lý kích nổ
     next_bombs = []
     bombed_this_turn = []
     for bx, by, timer in sim_bombs:
+        b_range = sim_bomb_ranges.get((bx, by), blast_radius)
         if timer <= 1:
-            bombed_this_turn.append((bx, by, blast_radius))
+            bombed_this_turn.append((bx, by, b_range))
         else:
             next_bombs.append((bx, by, timer - 1)) # Giảm timer đi 1 tick
 
@@ -236,9 +253,10 @@ def simulate_state(info: dict, action: str) -> dict:
                     match_bombs = [b for b in sim_bombs if b[0] == tx and b[1] == ty]
                     if match_bombs:
                         sim_bombs = [b for b in sim_bombs if not (b[0] == tx and b[1] == ty)]
-                        bombed_this_turn.append((tx, ty, br))
+                        target_range = sim_bomb_ranges.get((tx, ty), blast_radius)
+                        bombed_this_turn.append((tx, ty, target_range))
 
-    sim_hazard_zones = get_hazard_zones(sim_bombs, walls, sim_bricks, blast_radius, width, height)
+    sim_hazard_zones = get_hazard_zones(sim_bombs, walls, sim_bricks, blast_radius, width, height, sim_bomb_ranges)
 
     # 3. Tính toán các dự báo hiệu quả khi hành động là "BOMB" (để làm phần thưởng heuristic)
     projected_destroyed_bricks = set(info.get("projected_destroyed_bricks", []))
@@ -281,6 +299,7 @@ def simulate_state(info: dict, action: str) -> dict:
         "bricks": sim_bricks,
         "enemies": sim_enemies,
         "bombs": sim_bombs,
+        "bomb_ranges": sim_bomb_ranges,
         "explosions": sim_explosions,
         "items": sim_items,
         "ammo": sim_ammo,
