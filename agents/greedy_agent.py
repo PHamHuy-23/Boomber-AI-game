@@ -1,85 +1,83 @@
 """
-Greedy Best-First Search Agent - Agent tìm kiếm tham lam cho game Bomberman.
+Greedy Best-First Search Agent - Agent tìm kiếm tham lam trên không gian trạng thái cho game Bomberman.
 """
 import heapq
-from typing import Tuple, Set, Dict, Optional
+import itertools
+from typing import Tuple, Set, Dict, Optional, List
 from agents import BaseAgent
-from agents.search_utils import parse_state, hierarchical_action
+from agents.search_utils import (
+    parse_state, 
+    simulate_state, 
+    get_valid_actions, 
+    state_signature, 
+    get_hazard_zones, 
+    hierarchical_action
+)
 
-def greedy_search(start: Tuple[int, int],
-                  goal_set: Set[Tuple[int, int]],
-                  walls: set,
-                  bricks: set,
-                  bombs: list,
-                  explosions: set,
-                  hazard_zones: Dict[Tuple[int, int], int],
-                  width: int,
-                  height: int,
-                  danger_mode: bool = False) -> Optional[list]:
-    """Greedy Best-First Search trên lưới bản đồ 2D."""
-    if not goal_set:
-        return None
+def greedy_search(initial_state: dict, goal_test, max_depth: int = 10, danger_mode: bool = False, heuristic = None) -> Optional[List[str]]:
+    """Greedy Best-First Search trên không gian trạng thái."""
+    if heuristic is None:
+        heuristic = lambda s: 0
 
-    bomb_positions = {(bx, by) for bx, by, _ in bombs}
-
-    def heuristic(pos: Tuple[int, int]) -> int:
-        return min(abs(pos[0] - g[0]) + abs(pos[1] - g[1]) for g in goal_set)
-
-    start_h = heuristic(start)
-    open_heap = []
-    heapq.heappush(open_heap, (start_h, start[0], start[1]))
-
-    came_from = {}
-    closed_set = set()
+    counter = itertools.count()
+    start_h = heuristic(initial_state)
+    
+    # open_heap chứa các node dạng tuple: (h_score, unique_id, state, action_path, depth)
+    open_heap = [(start_h, next(counter), initial_state, [], 0)]
+    visited = set()
 
     while open_heap:
-        h_val, cx, cy = heapq.heappop(open_heap)
-        current = (cx, cy)
+        h, _, state, path, depth = heapq.heappop(open_heap)
 
-        if current in closed_set:
+        # Goal Test: dừng ngay khi đạt điều kiện đầu tiên
+        if goal_test(state):
+            return path
+
+        if depth >= max_depth:
             continue
-        closed_set.add(current)
 
-        if current in goal_set:
-            path = []
-            node = current
-            while node != start:
-                path.append(node)
-                node = came_from[node]
-            path.append(start)
-            return list(reversed(path))
+        sig = state_signature(state)
+        if sig in visited:
+            continue
+        visited.add(sig)
 
-        for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
-            nx, ny = cx + dx, cy + dy
-            neighbor = (nx, ny)
-
-            if not (0 <= nx < width and 0 <= ny < height):
-                continue
-            if neighbor in walls or neighbor in bricks:
-                continue
-            if neighbor in bomb_positions and neighbor != start:
-                continue
-            if neighbor in explosions:
-                continue
-            if neighbor in hazard_zones and hazard_zones[neighbor] <= 1:
-                continue
-            if not danger_mode and neighbor in hazard_zones:
+        actions = get_valid_actions(state)
+        for action in actions:
+            next_state = simulate_state(state, action)
+            
+            # Loại bỏ trạng thái bị chết do lửa nổ
+            if next_state["player_pos"] in next_state["explosions"]:
                 continue
 
-            if neighbor in closed_set:
+            npos = next_state["player_pos"]
+            # Đánh giá độ an toàn dựa trên hazard_zones động
+            if not danger_mode and npos in next_state["hazard_zones"]:
+                continue
+            if npos in next_state["hazard_zones"] and next_state["hazard_zones"][npos] <= 1:
                 continue
 
-            came_from[neighbor] = current
-            heapq.heappush(open_heap, (heuristic(neighbor), nx, ny))
+            next_h = heuristic(next_state)
+            heapq.heappush(open_heap, (next_h, next(counter), next_state, path + [action], depth + 1))
 
     return None
 
 class GreedyAgent(BaseAgent):
-    """GreedyAgent sử dụng Greedy với logic phân tầng."""
+    """GreedyAgent sử dụng Greedy trên không gian trạng thái với logic phân tầng."""
 
     def __init__(self):
         self.search_fn = greedy_search
 
     def choose_action(self, state: dict) -> str:
         info = parse_state(state)
+        
+        # Đồng bộ và tính toán hazard_zones động cho trạng thái ban đầu
+        info["hazard_zones"] = get_hazard_zones(
+            info["bombs"], 
+            info["walls"], 
+            info["bricks"], 
+            info["blast_radius"], 
+            info["width"], 
+            info["height"],
+            info.get("bomb_ranges", {})
+        )
         return hierarchical_action(self.search_fn, info)

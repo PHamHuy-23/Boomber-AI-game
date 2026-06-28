@@ -1,64 +1,74 @@
 """
-DFS Agent - Agent tìm kiếm theo chiều sâu (Depth-First Search) cho game Bomberman.
+DFS Agent - Agent tìm kiếm theo chiều sâu (Depth-First Search) trên không gian trạng thái cho game Bomberman.
 """
-from typing import Tuple, Set, Dict, Optional
+from typing import Tuple, Set, Dict, Optional, List
 from agents import BaseAgent
-from agents.search_utils import parse_state, hierarchical_action
+from agents.search_utils import (
+    parse_state, 
+    simulate_state, 
+    get_valid_actions, 
+    state_signature, 
+    get_hazard_zones, 
+    hierarchical_action
+)
 
-def dfs(start: Tuple[int, int],
-        goal_set: Set[Tuple[int, int]],
-        walls: set,
-        bricks: set,
-        bombs: list,
-        explosions: set,
-        hazard_zones: Dict[Tuple[int, int], int],
-        width: int,
-        height: int,
-        danger_mode: bool = False) -> Optional[list]:
-    """DFS trên lưới bản đồ 2D."""
-    if not goal_set:
-        return None
-
-    bomb_positions = {(bx, by) for bx, by, _ in bombs}
-    frontier = []
-    frontier.append((start, [start]))
-    visited = {start}
+def dfs(initial_state: dict, goal_test, max_depth: int = 10, danger_mode: bool = False) -> Optional[List[str]]:
+    """DFS trên không gian trạng thái."""
+    # Frontier lưu trữ các node dạng tuple: (state, action_path, depth)
+    frontier = [(initial_state, [], 0)]
+    visited = set()
 
     while frontier:
-        node, path = frontier.pop()
-        if node in goal_set:
+        state, path, depth = frontier.pop()
+
+        # Goal Test: dừng ngay khi đạt điều kiện đầu tiên
+        if goal_test(state):
             return path
 
-        cx, cy = node
-        for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
-            nx, ny = cx + dx, cy + dy
-            neighbor = (nx, ny)
+        if depth >= max_depth:
+            continue
 
-            if not (0 <= nx < width and 0 <= ny < height):
-                continue
-            if neighbor in walls or neighbor in bricks:
-                continue
-            if neighbor in bomb_positions and neighbor != start:
-                continue
-            if neighbor in explosions:
-                continue
-            if neighbor in hazard_zones and hazard_zones[neighbor] <= 1:
-                continue
-            if not danger_mode and neighbor in hazard_zones:
+        sig = state_signature(state)
+        if sig in visited:
+            continue
+        visited.add(sig)
+
+        actions = get_valid_actions(state)
+        for action in actions:
+            next_state = simulate_state(state, action)
+            
+            # Loại bỏ trạng thái bị chết do lửa nổ
+            if next_state["player_pos"] in next_state["explosions"]:
                 continue
 
-            if neighbor not in visited:
-                visited.add(neighbor)
-                frontier.append((neighbor, path + [neighbor]))
+            npos = next_state["player_pos"]
+            # Đánh giá độ an toàn dựa trên hazard_zones động
+            if not danger_mode and npos in next_state["hazard_zones"]:
+                continue
+            if npos in next_state["hazard_zones"] and next_state["hazard_zones"][npos] <= 1:
+                continue
+
+            frontier.append((next_state, path + [action], depth + 1))
 
     return None
 
 class DFSAgent(BaseAgent):
-    """DFSAgent sử dụng DFS với logic phân tầng."""
+    """DFSAgent sử dụng DFS trên không gian trạng thái với logic phân tầng."""
 
     def __init__(self):
         self.search_fn = dfs
 
     def choose_action(self, state: dict) -> str:
         info = parse_state(state)
+        
+        # Đồng bộ và tính toán hazard_zones động cho trạng thái ban đầu
+        info["hazard_zones"] = get_hazard_zones(
+            info["bombs"], 
+            info["walls"], 
+            info["bricks"], 
+            info["blast_radius"], 
+            info["width"], 
+            info["height"],
+            info.get("bomb_ranges", {})
+        )
         return hierarchical_action(self.search_fn, info)
