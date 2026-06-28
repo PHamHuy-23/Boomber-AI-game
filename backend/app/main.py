@@ -130,9 +130,10 @@ def init_game(req: Optional[InitRequest] = None):
         if req and req.agent_configs:
             configs = req.agent_configs
 
-        # Default configs for bots (player_1 is always human)
+        # Default configs for all players (no manual player)
         default_bot_agent = "minimax"
         global_agent_configs = {
+            "player_1": configs.get("player_1", default_bot_agent),
             "player_2": configs.get("player_2", default_bot_agent),
             "player_3": configs.get("player_3", default_bot_agent),
             "player_4": configs.get("player_4", default_bot_agent),
@@ -179,7 +180,7 @@ def step_game(req: StepRequest):
         
         # Provide AI for other players if not specified, using selected agent algorithm
         for agent_id, agent in global_engine.state.agents.items():
-            if agent.is_alive and agent_id != "player_1":
+            if agent.is_alive:
                 if agent_id not in actions:
                     t_bot_start = time.perf_counter()
                     

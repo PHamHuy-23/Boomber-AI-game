@@ -11,7 +11,7 @@ Triết lý thiết kế:
 """
 from typing import List, Tuple, Dict, Any
 from agents import BaseAgent
-from agents.search_utils import parse_state, simulate_state, evaluate_state
+from agents.search_utils import parse_state, simulate_state, evaluate_state, get_hazard_zones
 
 def get_valid_actions(state_info: dict) -> List[str]:
     """Lấy tất cả hành động hợp lệ về mặt vật lý của người chơi ở trạng thái hiện tại."""
@@ -65,6 +65,46 @@ class MinimaxAgent(BaseAgent):
     def __init__(self, depth: int = 5):
         self.depth = depth
 
+    def evaluate_state_adversarial(self, sim_state: dict) -> float:
+        """Hàm lượng giá mở rộng cho đối kháng, phạt theo khoảng cách đến quái nếu xa."""
+        base_score = evaluate_state(sim_state)
+        enemies = sim_state.get("enemies")
+        if enemies:
+            px, py = sim_state["player_pos"]
+            min_dist_enemy = min(abs(px - ex) + abs(py - ey) for ex, ey in enemies)
+            if min_dist_enemy > 4:
+                base_score -= (min_dist_enemy ** 2) * 20.0
+        return base_score
+
+    def order_actions(self, valid_actions: List[str], state_info: dict) -> List[str]:
+        """Sắp xếp các hành động để tối ưu hóa cắt tỉa Alpha-Beta."""
+        px, py = state_info["player_pos"]
+        hazard_zones = state_info.get("hazard_zones", {})
+        in_hazard = (px, py) in hazard_zones
+        
+        escape_moves = []
+        bomb_move = []
+        normal_moves = []
+        wait_move = []
+        
+        moves = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}
+        for action in valid_actions:
+            if action == "WAIT":
+                wait_move.append(action)
+            elif action == "BOMB":
+                bomb_move.append(action)
+            elif action in moves:
+                dx, dy = moves[action]
+                nx, ny = px + dx, py + dy
+                if in_hazard and (nx, ny) not in hazard_zones:
+                    escape_moves.append(action)
+                else:
+                    normal_moves.append(action)
+            else:
+                normal_moves.append(action)
+                
+        return escape_moves + bomb_move + normal_moves + wait_move
+
     def choose_action(self, state: dict) -> str:
         state_info = parse_state(state)
         
@@ -82,6 +122,7 @@ class MinimaxAgent(BaseAgent):
         beta = float('inf')   # Giá trị tốt nhất mà MIN node có thể đảm bảo
 
         # Nút gốc của cây Minimax (MAX node)
+        valid_actions = self.order_actions(valid_actions, state_info)
         for action in valid_actions:
             next_state = simulate_state(state_info, action)
             # Tính điểm số dự báo từ nút MIN phía dưới
@@ -100,13 +141,14 @@ class MinimaxAgent(BaseAgent):
         """MAX node: Đại diện cho lựa chọn tối ưu của người chơi để tối đa hóa điểm số."""
         # Điều kiện dừng: đạt giới hạn độ sâu hoặc người chơi bị trúng nổ
         if depth == 0 or state["player_pos"] in state["explosions"]:
-            return evaluate_state(state)
+            return self.evaluate_state_adversarial(state)
 
         valid_actions = get_valid_actions(state)
         if not valid_actions:
-            return evaluate_state(state)
+            return self.evaluate_state_adversarial(state)
 
         v = -float('inf')
+        valid_actions = self.order_actions(valid_actions, state)
         for action in valid_actions:
             next_state = simulate_state(state, action)
             v = max(v, self.min_value(next_state, alpha, beta, depth - 1))
@@ -119,7 +161,7 @@ class MinimaxAgent(BaseAgent):
     def min_value(self, state: dict, alpha: float, beta: float, depth: int) -> float:
         """MIN node: Đại diện cho hành động đối kháng của đối thủ để tối thiểu hóa điểm số của người chơi."""
         if depth == 0 or state["player_pos"] in state["explosions"]:
-            return evaluate_state(state)
+            return self.evaluate_state_adversarial(state)
 
         enemies = state["enemies"]
         if not enemies:
@@ -145,6 +187,17 @@ class MinimaxAgent(BaseAgent):
             next_state = {**state}
             next_state["enemies"] = list(state["enemies"])
             next_state["enemies"][closest_idx] = next_pos
+            
+            # CẬP NHẬT ĐỒNG BỘ HAZARD ZONES TẠI ĐÂY
+            next_state["hazard_zones"] = get_hazard_zones(
+                next_state["bombs"], 
+                next_state["walls"], 
+                next_state["bricks"], 
+                next_state["blast_radius"], 
+                next_state["width"], 
+                next_state["height"],
+                next_state.get("bomb_ranges", {})
+            )
             
             # Tính toán nhánh MAX tiếp theo
             v = min(v, self.max_value(next_state, alpha, beta, depth - 1))

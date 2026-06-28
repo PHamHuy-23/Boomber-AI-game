@@ -484,3 +484,121 @@ def evaluate_state(sim_state: dict) -> float:
     score += 10.0 / (dist_to_center + 1)
 
     return score
+
+def is_safe_tile(pos, hazard_zones, explosions) -> bool:
+    """Trả về True nếu ô đó an toàn (không có vụ nổ hoạt động và không nằm trong vùng nguy hiểm từ bom)."""
+    return pos not in hazard_zones and pos not in explosions
+
+def path_to_action(path) -> str:
+    """Chuyển đổi đường đi (danh sách tọa độ) thành hành động di chuyển đầu tiên của người chơi."""
+    if not path or len(path) < 2:
+        return "WAIT"
+    (cx, cy) = path[0]
+    (nx, ny) = path[1]
+    if nx == cx - 1:
+        return "LEFT"
+    if nx == cx + 1:
+        return "RIGHT"
+    if ny == cy - 1:
+        return "UP"
+    if ny == cy + 1:
+        return "DOWN"
+    return "WAIT"
+
+def should_place_bomb(pos, enemies, bricks, walls, blast_radius, width, height) -> bool:
+    """Trả về True nếu đặt bom tại `pos` có thể phá hủy gạch hoặc tiêu diệt kẻ địch."""
+    px, py = pos
+    for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+        for dist in range(1, blast_radius + 1):
+            tx, ty = px + dx * dist, py + dy * dist
+            if not (0 <= tx < width and 0 <= ty < height):
+                break
+            if (tx, ty) in walls:
+                break
+            if any(abs(tx - ex) + abs(ty - ey) == 0 for ex, ey in enemies):
+                return True
+            if (tx, ty) in bricks:
+                return True
+    return False
+
+def safe_goal_set(info: dict, hazard_zones: dict, explosions: set, bomb_positions: set) -> set:
+    """Tạo goal_set gồm tất cả các ô an toàn có thể đi được."""
+    goal_set = set()
+    for x in range(info["width"]):
+        for y in range(info["height"]):
+            pos = (x, y)
+            if is_safe_tile(pos, hazard_zones, explosions):
+                if pos not in info["walls"] and pos not in info["bricks"] and pos not in bomb_positions:
+                    goal_set.add(pos)
+    return goal_set
+
+
+def hierarchical_action(search_fn, info: dict) -> str:
+    """Logic phân tầng theo thứ tự ưu tiên."""
+    player_pos = info["player_pos"]
+    walls      = info["walls"]
+    bricks     = info["bricks"]
+    bombs      = info["bombs"]
+    enemies    = info["enemies"]
+    explosions = info["explosions"]
+    ammo       = info["ammo"]
+    blast_radius = info["blast_radius"]
+    width      = info["width"]
+    height     = info["height"]
+
+    hazard_zones  = get_hazard_zones(bombs, walls, bricks, blast_radius, width, height)
+    bomb_positions = {(bx, by) for bx, by, _ in bombs}
+
+    # Tầng 0 — Nguy hiểm tức thì: đang trong lửa hoặc bom nổ tick tới
+    if player_pos in explosions or (player_pos in hazard_zones and hazard_zones[player_pos] <= 1):
+        goal_set = safe_goal_set(info, hazard_zones, explosions, bomb_positions)
+        path = search_fn(player_pos, goal_set, walls, bricks, bombs, explosions, hazard_zones, width, height, danger_mode=True)
+        return path_to_action(path) if path else "WAIT"
+
+    # Tầng 1 — Nguy hiểm thông thường: bom chưa nổ ngay nhưng đang trong vùng nguy hiểm
+    if player_pos in hazard_zones:
+        goal_set = safe_goal_set(info, hazard_zones, explosions, bomb_positions)
+        path = search_fn(player_pos, goal_set, walls, bricks, bombs, explosions, hazard_zones, width, height, danger_mode=False)
+        if not path:
+            path = search_fn(player_pos, goal_set, walls, bricks, bombs, explosions, hazard_zones, width, height, danger_mode=True)
+        return path_to_action(path) if path else "WAIT"
+
+    # Tầng 2 — Đặt bom nếu có thể diệt enemy hoặc phá gạch
+    # (không cần kiểm tra hazard_zones vì tầng 1 đã xử lý rồi)
+    if ammo > 0:
+        if should_place_bomb(player_pos, enemies, bricks, walls, blast_radius, width, height):
+            return "BOMB"
+
+    # Tầng 3 — Tiếp cận enemy
+    if enemies:
+        goal_set = set()
+        for ex, ey in enemies:
+            for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+                pos = (ex + dx, ey + dy)
+                if 0 <= pos[0] < width and 0 <= pos[1] < height:
+                    if pos not in walls and pos not in bricks and pos not in bomb_positions:
+                        goal_set.add(pos)
+
+        # Nếu đã đứng kề enemy rồi → không cần di chuyển, xuống tầng 2 đặt bom tick sau
+        if player_pos not in goal_set:
+            path = search_fn(player_pos, goal_set, walls, bricks, bombs, explosions, hazard_zones, width, height, danger_mode=False)
+            if path:
+                return path_to_action(path)
+
+    # Tầng 4 — Tiếp cận gạch để phá
+    if bricks:
+        goal_set = set()
+        for bx, by in bricks:
+            for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+                pos = (bx + dx, by + dy)
+                if 0 <= pos[0] < width and 0 <= pos[1] < height:
+                    if pos not in walls and pos not in bricks and pos not in bomb_positions:
+                        goal_set.add(pos)
+
+        if player_pos not in goal_set:
+            path = search_fn(player_pos, goal_set, walls, bricks, bombs, explosions, hazard_zones, width, height, danger_mode=False)
+            if path:
+                return path_to_action(path)
+
+    # Tầng 5 — Fallback
+    return "WAIT"

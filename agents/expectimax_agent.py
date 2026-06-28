@@ -12,7 +12,7 @@ Triết lý thiết kế:
 """
 from typing import List, Tuple, Dict, Any
 from agents import BaseAgent
-from agents.search_utils import parse_state, simulate_state, evaluate_state
+from agents.search_utils import parse_state, simulate_state, evaluate_state, get_hazard_zones
 
 def get_valid_actions(state_info: dict) -> List[str]:
     """Lấy tất cả hành động hợp lệ về vật lý của người chơi."""
@@ -66,6 +66,17 @@ class ExpectimaxAgent(BaseAgent):
     def __init__(self, depth: int = 5):
         self.depth = depth
 
+    def evaluate_state_adversarial(self, sim_state: dict) -> float:
+        """Hàm lượng giá mở rộng cho đối kháng, phạt theo khoảng cách đến quái nếu xa."""
+        base_score = evaluate_state(sim_state)
+        enemies = sim_state.get("enemies")
+        if enemies:
+            px, py = sim_state["player_pos"]
+            min_dist_enemy = min(abs(px - ex) + abs(py - ey) for ex, ey in enemies)
+            if min_dist_enemy > 4:
+                base_score -= (min_dist_enemy ** 2) * 20.0
+        return base_score
+
     def choose_action(self, state: dict) -> str:
         state_info = parse_state(state)
         
@@ -95,11 +106,11 @@ class ExpectimaxAgent(BaseAgent):
     def max_value(self, state: dict, depth: int) -> float:
         """MAX node: Chọn hành động tối đa hóa giá trị kỳ vọng nhận được."""
         if depth == 0 or state["player_pos"] in state["explosions"]:
-            return evaluate_state(state)
+            return self.evaluate_state_adversarial(state)
 
         valid_actions = get_valid_actions(state)
         if not valid_actions:
-            return evaluate_state(state)
+            return self.evaluate_state_adversarial(state)
 
         v = -float('inf')
         for action in valid_actions:
@@ -110,7 +121,7 @@ class ExpectimaxAgent(BaseAgent):
     def chance_value(self, state: dict, depth: int) -> float:
         """CHANCE node: Tính giá trị kỳ vọng trung bình dựa trên mọi hành động khả thi của kẻ địch."""
         if depth == 0 or state["player_pos"] in state["explosions"]:
-            return evaluate_state(state)
+            return self.evaluate_state_adversarial(state)
 
         enemies = state["enemies"]
         if not enemies:
@@ -136,6 +147,17 @@ class ExpectimaxAgent(BaseAgent):
             next_state = {**state}
             next_state["enemies"] = list(state["enemies"])
             next_state["enemies"][closest_idx] = next_pos
+            
+            # CẬP NHẬT ĐỒNG BỘ HAZARD ZONES TẠI ĐÂY
+            next_state["hazard_zones"] = get_hazard_zones(
+                next_state["bombs"], 
+                next_state["walls"], 
+                next_state["bricks"], 
+                next_state["blast_radius"], 
+                next_state["width"], 
+                next_state["height"],
+                next_state.get("bomb_ranges", {})
+            )
             
             total_value += self.max_value(next_state, depth - 1)
 

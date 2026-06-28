@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bomberman AI Lab</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #07111f;
+            --bg-2: #0a1729;
+            --panel: rgba(13, 22, 38, 0.88);
+            --panel-strong: rgba(15, 26, 46, 0.96);
+            --line: rgba(148, 163, 184, 0.18);
+            --line-strong: rgba(56, 189, 248, 0.28);
+            --text: #e5eefc;
+            --muted: #94a3b8;
+            --cyan: #38bdf8;
+            --cyan-2: #22d3ee;
+            --green: #34d399;
+            --amber: #fbbf24;
+            --pink: #fb7185;
+            --shadow: 0 24px 60px rgba(2, 6, 23, 0.42);
+            --radius: 22px;
+            --cell-size: 34px;
+        }
+
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            font-family: 'Space Grotesk', sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(56, 189, 248, 0.14), transparent 32%),
+                radial-gradient(circle at top right, rgba(251, 113, 133, 0.14), transparent 30%),
+                linear-gradient(180deg, #050b14, #0a1627 58%, #050b14);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 36px 36px;
+            pointer-events: none;
+            opacity: 0.22;
+        }
+
+        button, select, input { font: inherit; }
+        .app-shell { position: relative; z-index: 1; }
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 30;
+            display: grid;
+            grid-template-columns: minmax(0, 1.2fr) auto auto;
+            gap: 1rem;
+            align-items: center;
+            padding: 18px 24px;
+            backdrop-filter: blur(18px);
+            background: rgba(5, 11, 20, 0.84);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+            box-shadow: 0 8px 30px rgba(2, 6, 23, 0.28);
+        }
+        .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+        .brand-mark {
+            width: 44px; height: 44px; border-radius: 14px;
+            background:
+                radial-gradient(circle at 30% 30%, #fff, rgba(255,255,255,0) 28%),
+                linear-gradient(135deg, #38bdf8, #fb7185 75%);
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.12), 0 12px 30px rgba(56,189,248,0.28);
+            flex: 0 0 auto;
+        }
+        .brand-title { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.02em; margin-bottom: 2px; }
+        .brand-subtitle { color: var(--muted); font-size: 0.86rem; }
+        .topnav { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+        .topnav button {
+            border: 1px solid rgba(148, 163, 184, 0.14);
+            background: rgba(15, 23, 42, 0.72);
+            color: var(--text);
+            padding: 10px 14px; border-radius: 999px; cursor: pointer;
+        }
+        .top-status { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+        .pill {
+            display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px;
+            border-radius: 999px; border: 1px solid rgba(148, 163, 184, 0.16);
+            background: rgba(15, 23, 42, 0.78); color: var(--text); font-size: 0.84rem; font-weight: 600;
+        }
+        .pill::before { content: ''; width: 9px; height: 9px; border-radius: 999px; background: var(--muted); }
+        .pill-loading::before { background: var(--amber); }
+        .pill-ready::before { background: var(--green); }
+        .pill-offline::before { background: var(--pink); }
+        .workspace { width: min(1680px, calc(100vw - 28px)); margin: 0 auto; padding: 18px 0 46px; }
+        .section { margin-top: 18px; padding: 18px; }
+        .section-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 16px; }
+        .section-title { margin: 0; font-size: clamp(1.25rem, 2vw, 2rem); letter-spacing: -0.03em; }
+        .section-desc { margin: 0; color: var(--muted); font-size: 0.92rem; max-width: 62ch; line-height: 1.5; }
+        .panel {
+            background: linear-gradient(180deg, rgba(16, 24, 40, 0.94), rgba(11, 19, 33, 0.94));
+            border: 1px solid rgba(148, 163, 184, 0.12); border-radius: var(--radius); box-shadow: var(--shadow);
+        }
+        .game-layout, .lab-layout, .experiment-grid { display: grid; gap: 18px; }
+        .game-layout { grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.72fr); align-items: start; }
+        .board-panel, .lab-main, .lab-side, .log-card, .experiment-card, .card { padding: 18px; }
+        .board-toolbar, .lab-toolbar, .log-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+        .toolbar-group { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+        .select, .input, .slider {
+            border-radius: 12px; border: 1px solid rgba(148, 163, 184, 0.16); background: rgba(5, 11, 20, 0.72);
+            color: var(--text); min-height: 42px; padding: 0 12px;
+        }
+        .slider { padding: 0; accent-color: var(--cyan); }
+        .action-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+        .btn {
+            min-height: 42px; border: 1px solid transparent; border-radius: 12px; padding: 0 14px;
+            cursor: pointer; color: white; font-weight: 700;
+        }
+        .btn-primary { background: linear-gradient(135deg, #22c55e, #0891b2); }
+        .btn-secondary { background: rgba(15, 23, 42, 0.92); border-color: rgba(148, 163, 184, 0.18); }
+        .btn-accent { background: linear-gradient(135deg, #38bdf8, #8b5cf6); }
+        .btn-warn { background: linear-gradient(135deg, #f97316, #fb7185); }
+        .board-shell { position: relative; width: 100%; }
+        .board-frame {
+            position: relative; padding: 14px; border-radius: 26px; border: 1px solid rgba(56, 189, 248, 0.2);
+            background:
+                radial-gradient(circle at top left, rgba(56, 189, 248, 0.1), transparent 34%),
+                radial-gradient(circle at bottom right, rgba(251, 113, 133, 0.1), transparent 34%),
+                linear-gradient(180deg, rgba(6, 12, 24, 0.96), rgba(6, 12, 24, 0.88));
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 24px 50px rgba(2, 6, 23, 0.45);
+        }
+        .board-stage {
+            position: relative; min-height: 640px; display: flex; align-items: center; justify-content: center; overflow: hidden;
+        }
+        .board {
+            position: relative; display: grid; gap: 3px; width: fit-content; max-width: 100%;
+        }
+        .tile {
+            position: relative; width: var(--cell-size); height: var(--cell-size); border-radius: 8px; overflow: hidden;
+            background-size: cover; background-position: center; image-rendering: pixelated; box-shadow: inset 0 -3px 0 rgba(0,0,0,0.22);
+        }
+        .tile-empty-even { background-image: url('assets/Ground.png'); }
+        .tile-empty-odd { background-image: url('assets/Ground.png'); filter: brightness(0.92); }
+        .tile-wall { background-image: url('assets/Block.png'); }
+        .tile-brick { background-image: url('assets/Brick.png'); }
+        .tile-bomb {
+            background-image: url('assets/Bomb.png');
+            background-size: calc(4 * var(--cell-size)) var(--cell-size);
+            background-position: 0px 0px;
+            animation: bombSprite 0.6s steps(4) infinite;
+        }
+        .tile-explosion-center {
+            background-image: url('assets/ExplosionStart.png');
+            background-size: calc(8 * var(--cell-size)) var(--cell-size);
+            background-position: 0px 0px;
+            animation: explodeSprite 0.5s steps(8) infinite;
+        }
+        .tile-explosion-horizontal {
+            background-image: url('assets/ExplosionMiddle.png');
+            background-size: calc(8 * var(--cell-size)) var(--cell-size);
+            background-position: 0px 0px;
+            animation: explodeSprite 0.5s steps(8) infinite;
+        }
+        .tile-explosion-vertical {
+            background-image: url('assets/ExplosionMiddle.png');
+            background-size: calc(8 * var(--cell-size)) var(--cell-size);
+            background-position: 0px 0px;
+            animation: explodeSprite 0.5s steps(8) infinite;
+            transform: rotate(90deg);
+        }
+        .tile-item-radius { background-image: url('assets/ItemBlastRadius.png'); }
+        .tile-item-capacity { background-image: url('assets/ItemExtraBomb.png'); }
+        .tile-fog {
+            background:
+                radial-gradient(circle at center, rgba(56, 189, 248, 0.08), rgba(2, 6, 23, 0.82)),
+                linear-gradient(180deg, rgba(7, 12, 22, 0.92), rgba(2, 6, 23, 0.96));
+        }
+        .tile-fog::after {
+            content: '?'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            color: rgba(148, 163, 184, 0.55); font-size: 0.95rem; font-weight: 700;
+        }
+        .agents-layer { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+        .agent {
+            width: 28px; height: 42px; margin-top: -12px; background-size: 112px 168px; image-rendering: pixelated; animation: walk 0.68s steps(4) infinite;
+        }
+        .agent-player_1 { background-image: url('assets/PlayerWhiteWalk.png'); }
+        .agent-player_2 { background-image: url('assets/PlayerBlackWalk.png'); }
+        .agent-player_3 { background-image: url('assets/PlayerBlueWalk.png'); }
+        .agent-player_4 { background-image: url('assets/PlayerRedWalk.png'); }
+        .agent.dir-up { background-position-y: 0; }
+        .agent.dir-down { background-position-y: -42px; }
+        .agent.dir-left { background-position-y: -84px; }
+        .agent.dir-right { background-position-y: -126px; }
+        
+        .agent.agent-dead {
+            width: 28px;
+            height: 42px;
+            margin-top: -12px;
+            background-size: 168px 42px;
+            background-position: 0 0;
+            animation: agentDeath 0.9s steps(6) forwards;
+        }
+        .agent-player_1.agent-dead { background-image: url('assets/PlayerWhiteDeath.png'); }
+        .agent-player_2.agent-dead { background-image: url('assets/PlayerBlackDeath.png'); }
+        .agent-player_3.agent-dead { background-image: url('assets/PlayerBlueDeath.png'); }
+        .agent-player_4.agent-dead { background-image: url('assets/PlayerRedDeath.png'); }
+        .board-placeholder {
+            position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center;
+            color: var(--muted); background:
+                radial-gradient(circle at top, rgba(56, 189, 248, 0.1), transparent 44%),
+                linear-gradient(180deg, rgba(5, 11, 20, 0.92), rgba(5, 11, 20, 0.98));
+            border: 1px dashed rgba(148, 163, 184, 0.2); border-radius: 24px;
+        }
+        .board-placeholder[hidden] {
+            display: none !important;
+        }
+        .placeholder-card { max-width: 560px; padding: 20px 22px; border-radius: 18px; background: rgba(8, 15, 28, 0.9); border: 1px solid rgba(56, 189, 248, 0.18); }
+        .control-column { display: grid; gap: 18px; }
+        .card h2, .card h3, .lab-side h3, .experiment-card h3 { margin: 0 0 14px; font-size: 1rem; letter-spacing: -0.02em; }
+        .card-subtext { margin: -8px 0 14px; color: var(--muted); font-size: 0.88rem; line-height: 1.45; }
+        .stack, .lab-meta-grid, .experiment-grid, .side-stack { display: grid; gap: 12px; }
+        .metric-row, .status-row, .list-item {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px;
+            border-radius: 14px; background: rgba(148, 163, 184, 0.05); border: 1px solid rgba(148, 163, 184, 0.08);
+        }
+        .metric-label { color: var(--muted); font-size: 0.84rem; }
+        .metric-value { font-size: 0.96rem; font-weight: 700; }
+        .status-list { display: grid; gap: 10px; }
+        .status-name { display: flex; gap: 10px; align-items: center; font-weight: 700; }
+        .status-dot { width: 12px; height: 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.7); }
+        .status-meta { color: var(--muted); font-size: 0.84rem; text-align: right; }
+        .lab-layout { grid-template-columns: minmax(0, 1.2fr) minmax(330px, 0.6fr); }
+        .lab-meta-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 14px; }
+        .mini-card { padding: 12px; border-radius: 14px; background: rgba(148, 163, 184, 0.05); border: 1px solid rgba(148, 163, 184, 0.08); }
+        .mini-card .label { color: var(--muted); font-size: 0.8rem; margin-bottom: 6px; }
+        .mini-card .value { font-size: 1rem; font-weight: 700; }
+        .whiteboard-stage {
+            position: relative; min-height: 560px; border-radius: 22px; border: 1px solid rgba(148, 163, 184, 0.12);
+            overflow: hidden;
+            background: radial-gradient(circle at center, rgba(56, 189, 248, 0.08), transparent 36%), linear-gradient(180deg, rgba(5, 11, 20, 0.94), rgba(7, 16, 29, 0.96));
+            touch-action: none;
+        }
+        .tree-hint { position: absolute; right: 14px; top: 14px; padding: 8px 10px; border-radius: 999px; background: rgba(5, 11, 20, 0.76); border: 1px solid rgba(148, 163, 184, 0.14); color: var(--muted); font-size: 0.8rem; z-index: 2; }
+        .tree-canvas { position: absolute; left: 0; top: 0; width: 2400px; height: 1400px; transform-origin: 0 0; }
+        .tree-edges { position: absolute; inset: 0; width: 100%; height: 100%; transform-origin: 0 0; }
+        .tree-node {
+            position: absolute; width: 210px; padding: 12px; border-radius: 16px; background: rgba(9, 16, 29, 0.96);
+            border: 1px solid rgba(148, 163, 184, 0.16); box-shadow: 0 14px 28px rgba(2, 6, 23, 0.35); cursor: pointer;
+        }
+        .tree-node.is-selected { border-color: rgba(56, 189, 248, 0.42); box-shadow: 0 18px 28px rgba(2, 6, 23, 0.48); }
+        .tree-node .kind { font-size: 0.74rem; color: var(--cyan); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+        .tree-node .title { font-size: 0.95rem; font-weight: 700; margin-bottom: 8px; }
+        .tree-node .meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.74rem; color: var(--muted); line-height: 1.5; }
+        .tree-details { margin-top: 14px; padding: 14px; border-radius: 16px; background: rgba(148, 163, 184, 0.05); border: 1px solid rgba(148, 163, 184, 0.08); }
+        .tree-details h4 { margin: 0 0 8px; font-size: 0.98rem; }
+        .tree-details p { margin: 0; color: var(--muted); line-height: 1.55; font-size: 0.9rem; }
+        .list-box { max-height: 220px; overflow: auto; padding-right: 6px; }
+        .list-item strong { font-size: 0.88rem; }
+        .list-item span { color: var(--muted); font-size: 0.82rem; line-height: 1.45; }
+        .log-panel { padding: 18px; }
+        .log-list { max-height: 320px; overflow: auto; display: grid; gap: 10px; padding-right: 6px; }
+        .log-row {
+            display: grid; grid-template-columns: 108px 72px 92px minmax(0, 1fr); gap: 12px;
+            padding: 11px 12px; border-radius: 14px; background: rgba(148, 163, 184, 0.05); border: 1px solid rgba(148, 163, 184, 0.08); align-items: start;
+        }
+        .log-row .time, .log-row .step, .log-row .agent { font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem; color: var(--muted); }
+        .chart-placeholder { min-height: 220px; border-radius: 18px; padding: 16px; border: 1px solid rgba(148, 163, 184, 0.1); background: linear-gradient(180deg, rgba(148, 163, 184, 0.04), rgba(148, 163, 184, 0.02)), radial-gradient(circle at top right, rgba(56, 189, 248, 0.1), transparent 48%); }
+        .chart-ghost { margin-top: 14px; min-height: 110px; border-radius: 16px; border: 1px dashed rgba(148, 163, 184, 0.18); background: linear-gradient(180deg, rgba(5, 11, 20, 0.72), rgba(5, 11, 20, 0.9)); }
+        @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+        @keyframes walk { from { background-position-x: 0; } to { background-position-x: -112px; } }
+        @keyframes bombSprite {
+            from { background-position-x: 0px; }
+            to { background-position-x: calc(-4 * var(--cell-size)); }
+        }
+        @keyframes explodeSprite {
+            from { background-position-x: 0px; }
+            to { background-position-x: calc(-8 * var(--cell-size)); }
+        }
+        @keyframes agentDeath {
+            from { background-position-x: 0; }
+            to { background-position-x: -168px; }
+        }
+        @media (max-width: 1280px) {
+            .topbar { grid-template-columns: 1fr; justify-items: start; }
+            .top-status { justify-content: flex-start; }
+            .game-layout, .lab-layout, .experiment-grid { grid-template-columns: 1fr; }
+            .lab-meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 900px) {
+            :root { --cell-size: 28px; }
+            .section { padding: 14px 0; }
+            .board-stage { min-height: 540px; }
+            .whiteboard-stage { min-height: 460px; }
+            .log-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark"></div>
+                <div>
+                    <div class="brand-title">Bomberman AI Lab</div>
+                    <div class="brand-subtitle">Play, explain, and compare multi-agent search</div>
+                </div>
+            </div>
+            <nav class="topnav" aria-label="Site sections">
+                <button data-target="game-section">Play Game</button>
+                <button data-target="lab-section">Algorithm Lab</button>
+                <button data-target="experiment-section">Experiments</button>
+            </nav>
+            <div class="top-status">
+                <span id="connection-pill" class="pill pill-loading">Connecting</span>
+                <span id="step-pill" class="pill">Step 0</span>
+            </div>
+        </header>
+
+        <main class="workspace">
+            <section class="section" id="game-section">
+                <div class="section-header">
+                    <div>
+                        <h1 class="section-title">Play Game</h1>
+                        <p class="section-desc">Quan sát toàn bộ trận đấu, chọn thuật toán cho từng player, bật hoặc tắt Fog of War và điều chỉnh tốc độ mô phỏng cho phù hợp với laptop.</p>
+                    </div>
+                </div>
+
+                <div class="game-layout">
+                    <article class="panel board-panel">
+                        <div class="board-toolbar">
+                            <div class="toolbar-group">
+                                <select id="game-view-select" class="select">
+                                    <option value="god">God View</option>
+                                    <option value="agent">Agent View</option>
+                                </select>
+                                <select id="focus-agent-select" class="select"></select>
+                                <label class="pill" style="cursor:pointer;">
+                                    <input id="chk-fow" type="checkbox" style="accent-color: var(--cyan); margin-right: 8px;">
+                                    Fog of War
+                                </label>
+                                <input id="fow-radius" class="input" type="number" min="1" max="6" value="4" style="width: 90px;">
+                            </div>
+                            <div class="toolbar-group">
+                                <span id="game-mode-pill" class="pill pill-ready">God View</span>
+                                <span id="game-status" class="pill">Ready</span>
+                            </div>
+                        </div>
+
+                        <div class="board-shell">
+                            <div class="board-frame">
+                                <div class="board-stage">
+                                    <div id="board" class="board"></div>
+                                    <div id="board-placeholder" class="board-placeholder">
+                                        <div class="placeholder-card">
+                                            <h3>Màn hình game đang chờ</h3>
+                                            <p>Nếu backend chưa chạy, khu này sẽ cho bạn biết rõ. Khi kết nối thành công, toàn bộ bàn cờ Bomberman sẽ xuất hiện ở đây với chế độ God View hoặc Agent View.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <p class="card-subtext" style="margin-top: 12px;">
+                            Khi FOW bật, phần game sẽ chỉ hiển thị vùng quan sát của agent được chọn. Khi tắt, toàn bộ bản đồ sẽ hiển thị để hỗ trợ trình bày, demo và so sánh thuật toán.
+                        </p>
+                    </article>
+
+                    <aside class="control-column">
+                        <article class="panel card">
+                            <h2>Match Controls</h2>
+                            <div class="action-buttons" style="margin-bottom: 12px;">
+                                <button id="btn-start" class="btn btn-primary">Start</button>
+                                <button id="btn-pause" class="btn btn-secondary">Pause</button>
+                                <button id="btn-resume" class="btn btn-accent">Resume</button>
+                                <button id="btn-reset" class="btn btn-warn">Reset</button>
+                            </div>
+                            <div class="stack">
+                                <div class="metric-row">
+                                    <span class="metric-label">Speed</span>
+                                    <span id="speed-value" class="metric-value">300 ms</span>
+                                </div>
+                                <input id="speed-slider" class="slider" type="range" min="120" max="1000" step="20" value="300">
+                                <div class="metric-row">
+                                    <span class="metric-label">Step</span>
+                                    <span id="step-count" class="metric-value">0</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-label">Last action</span>
+                                    <span id="last-action" class="metric-value">-</span>
+                                </div>
+                            </div>
+                        </article>
+
+                        <article class="panel card">
+                            <h2>Agent Setup</h2>
+                            <p class="card-subtext">Chọn thuật toán cho từng player trước khi bắt đầu. Player 1 có thể để manual hoặc chuyển sang agent-controlled.</p>
+                            <div class="stack">
+                                <div class="metric-row">
+                                    <span class="metric-label">Map preset</span>
+                                    <select id="map-select" class="select" style="min-width: 180px;"></select>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-label">Seed</span>
+                                    <input id="seed-input" class="input" type="number" value="42" style="width: 120px;">
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-label">Agent count</span>
+                                    <select id="agent-count" class="select" style="min-width: 120px;">
+                                        <option value="2">2</option>
+                                        <option value="3">3</option>
+                                        <option value="4" selected>4</option>
+                                    </select>
+                                </div>
+                                <div class="metric-row"><span class="metric-label">Player 1</span><select id="agent-select-p1" class="select"></select></div>
+                                <div class="metric-row"><span class="metric-label">Player 2</span><select id="agent-select-p2" class="select"></select></div>
+                                <div class="metric-row"><span class="metric-label">Player 3</span><select id="agent-select-p3" class="select"></select></div>
+                                <div class="metric-row"><span class="metric-label">Player 4</span><select id="agent-select-p4" class="select"></select></div>
+                            </div>
+                        </article>
+
+                        <article class="panel card">
+                            <h2>Live Status</h2>
+                            <div id="agent-status-list" class="status-list"></div>
+                        </article>
+                    </aside>
+                </div>
+            </section>
+
+            <section class="section" id="lab-section">
+                <div class="section-header">
+                    <div>
+                        <h1 class="section-title">Algorithm Visualization</h1>
+                        <p class="section-desc">Whiteboard tương tác để quan sát BFS, DFS, A*, Hill Climbing, Simulated Annealing, Minimax, Expectimax và các thuật toán khác dưới God View hoặc Agent View.</p>
+                    </div>
+                </div>
+
+                <div class="lab-layout">
+                    <article class="panel lab-main">
+                        <div class="lab-toolbar">
+                            <div class="toolbar-group">
+                                <select id="lab-algorithm-select" class="select"></select>
+                                <select id="lab-scenario-select" class="select">
+                                    <option value="bomb_escape">Bomb Escape</option>
+                                    <option value="item_hunt">Item Hunt</option>
+                                    <option value="enemy_pressure">Enemy Pressure</option>
+                                    <option value="open_field">Open Field</option>
+                                </select>
+                                <select id="lab-view-select" class="select">
+                                    <option value="god">God View</option>
+                                    <option value="agent">Agent View</option>
+                                </select>
+                                <select id="lab-focus-select" class="select"></select>
+                            </div>
+                            <div class="toolbar-group">
+                                <button id="lab-refresh-btn" class="btn btn-secondary">Refresh trace</button>
+                            </div>
+                        </div>
+
+                        <div id="lab-meta-cards" class="lab-meta-grid"></div>
+                        <div class="whiteboard-stage" id="lab-tree-stage">
+                            <div class="tree-hint">Wheel to zoom, drag to pan</div>
+                            <svg id="lab-tree-edges" class="tree-edges"></svg>
+                            <div id="lab-tree-canvas" class="tree-canvas"></div>
+                        </div>
+                        <div class="tree-details" id="lab-node-details">
+                            <h4>Node details</h4>
+                            <p>Chọn một node để xem parent, children, heuristic, utility và lý do sinh node. Khu này được thiết kế để thay dữ liệu thực nghiệm thật khi dataset sẵn sàng.</p>
+                        </div>
+                    </article>
+
+                    <aside class="side-stack">
+                        <article class="panel lab-side">
+                            <h3>Frontier / Open List</h3>
+                            <div id="lab-frontier" class="list-box"></div>
+                        </article>
+                        <article class="panel lab-side">
+                            <h3>Closed / Pruned</h3>
+                            <div id="lab-closed" class="list-box"></div>
+                        </article>
+                        <article class="panel lab-side">
+                            <h3>Reasoning</h3>
+                            <div id="lab-insight" class="list-box"></div>
+                        </article>
+                    </aside>
+                </div>
+
+                <article class="panel log-card" style="margin-top: 18px;">
+                    <div class="log-toolbar">
+                        <div class="toolbar-group">
+                            <input id="lab-log-search" class="input" type="search" placeholder="Search logs..." style="min-width: 220px;">
+                            <select id="lab-agent-filter" class="select">
+                                <option value="all">All agents</option>
+                            </select>
+                        </div>
+                        <div class="toolbar-group">
+                            <button id="lab-clear-log" class="btn btn-secondary">Clear log</button>
+                        </div>
+                    </div>
+                    <div id="lab-event-log" class="log-list"></div>
+                </article>
+            </section>
+
+            <section class="section" id="experiment-section">
+                <div class="section-header">
+                    <div>
+                        <h1 class="section-title">Experiments</h1>
+                        <p class="section-desc">Khu này chỉ là khung kiến trúc cho dataset và dashboard sau này. Khi dữ liệu thực nghiệm sẵn sàng, ta chỉ cần nối biểu đồ và bảng so sánh vào đúng chỗ.</p>
+                    </div>
+                </div>
+
+                <div class="experiment-grid">
+                    <article class="panel experiment-card chart-placeholder">
+                        <h3>Dataset Overview</h3>
+                        <p>Không gian cho summary card, số trận, phân bố map, seed, và số agent.</p>
+                        <div class="chart-ghost"></div>
+                    </article>
+                    <article class="panel experiment-card chart-placeholder">
+                        <h3>Algorithm Comparison</h3>
+                        <p>Biểu đồ so sánh win rate, latency, survival time, heuristic efficiency và FOW impact.</p>
+                        <div class="chart-ghost"></div>
+                    </article>
+                    <article class="panel experiment-card chart-placeholder">
+                        <h3>Scenario Breakdown</h3>
+                        <p>Khung để phân tích theo map preset, seed, fog mode, team size và từng chiến thuật.</p>
+                        <div class="chart-ghost"></div>
+                    </article>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>

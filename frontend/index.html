@@ -466,77 +466,19 @@
             to { transform: scale(1); opacity: 1; }
         }
 
-        /* LANDING PAGE STYLES */
-        .slideshow-wrapper {
+        /* GAME WRAPPER */
+        .game-wrapper {
             width: 100vw;
             height: 100vh;
-            overflow-y: scroll;
-            scroll-snap-type: y mandatory;
-            scroll-behavior: smooth;
-            box-sizing: border-box;
-            /* Hide scrollbars for cleaner look */
-            scrollbar-width: none;
-        }
-        .slideshow-wrapper::-webkit-scrollbar {
-            display: none;
-        }
-
-        /* TOP NAVIGATION */
-        .top-nav {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 60px;
-            background: rgba(11, 7, 26, 0.95);
-            border-bottom: 2px solid var(--border-pink);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 4vw;
-            z-index: 1000;
-            box-shadow: 0 4px 15px rgba(255, 0, 127, 0.2);
-            font-family: 'Press Start 2P', monospace;
-            box-sizing: border-box;
-        }
-
-        .top-nav .logo {
-            font-size: 1.2rem;
-            color: #fff;
-            text-shadow: 0 0 10px var(--border-pink);
-        }
-
-        .top-nav .nav-links {
-            display: flex;
-            gap: 2rem;
-        }
-
-        .top-nav a {
-            color: var(--text-primary);
-            text-decoration: none;
-            font-size: 0.65rem;
-            transition: color 0.2s, text-shadow 0.2s;
-        }
-
-        .top-nav a:hover, .top-nav a.active {
-            color: var(--border-cyan);
-            text-shadow: 0 0 8px var(--border-cyan);
-        }
-
-        .slide {
-            width: 100vw;
-            height: 100vh;
-            scroll-snap-align: start;
-            scroll-snap-stop: always;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 80px 4vw 4vh 4vw;
+            padding: 2vh 4vw;
             box-sizing: border-box;
         }
 
-        .container, .slide-content-split {
+        .container {
             width: 100%;
             max-width: 1600px;
             margin: 0 auto;
@@ -714,24 +656,12 @@
     </style>
 </head>
 <body>
-    <header class="top-nav">
-        <div class="logo">BOMB IT 7</div>
-        <div class="nav-links">
-            <a href="#slide-1" onclick="navTo(1)">Game Platform</a>
-            <a href="#slide-2" onclick="navTo(2)">So Sánh KQ</a>
-            <a href="#slide-3" onclick="navTo(3)">Bản Đồ CSP</a>
-            <a href="#slide-4" onclick="navTo(4)">Đối Kháng AI</a>
-            <a href="#slide-5" onclick="navTo(5)">Visual Map</a>
-        </div>
-    </header>
 
-    <div class="slideshow-wrapper">
-        <!-- SLIDE 1: GAME -->
-        <div class="slide active" id="slide-1">
-            <h1>BOMB IT 7</h1>
-            <div class="subtitle">Retro Pixel Arcade AI Platform</div>
+    <div class="game-wrapper">
+        <h1>BOMB IT 7</h1>
+        <div class="subtitle">Retro Pixel Arcade AI Platform</div>
 
-            <div class="container">
+        <div class="container">
         <!-- Main Game Board with arcade machine monitor styling -->
         <div class="board-container">
             <div class="board-frame">
@@ -761,7 +691,17 @@
             <!-- Agent Selector Card -->
             <div class="arcade-card agent-selector-card" style="grid-column: span 2;">
                 <h2 style="color: #d8b4fe; font-size: 0.68rem;">🤖 AGENT SETUP <span style="font-size:0.45rem; color:#a855f7; font-weight:400;">(Chọn trước khi INIT)</span></h2>
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.75rem;">
+                    <!-- Player 1 -->
+                    <div class="player-slot">
+                        <div class="player-slot-label player-1-label">
+                            <span class="player-dot" style="background:#00f0ff;"></span>
+                            Bot 1 👤
+                        </div>
+                        <select id="agent-select-p1" class="agent-select">
+                            <option value="minimax">Minimax</option>
+                        </select>
+                    </div>
                     <!-- Player 2 -->
                     <div class="player-slot">
                         <div class="player-slot-label player-2-label">
@@ -846,351 +786,9 @@
             </div> <!-- End container -->
         </div> <!-- End Slide 1 -->
 
-        <!-- SLIDE 2: Bảng 1 -->
-        <div class="slide" id="slide-2">
-            <h1>ĐÁNH GIÁ THỰC NGHIỆM</h1>
-            <div class="subtitle">So Sánh Định Lượng Các Thuật Toán</div>
-            <div class="slide-content-split">
-                <div class="slide-text">
-                    <p>Để chứng minh tính hiệu quả của các giải pháp đề xuất, hệ thống đã tiến hành thử nghiệm thực nghiệm quy mô lớn với 1000 trận đấu giả lập trên các cấu hình thuật toán khác nhau.</p>
-                    <p>Thực nghiệm đo đạc khả năng tìm đường của các thuật toán thuộc nhóm tìm kiếm không thông tin (BFS, DFS) và có thông tin (A*, Greedy Best-First Search) trong môi trường có mật độ gạch phá hủy và bom ngẫu nhiên.</p>
-                    
-                    <h3>Bảng 1: Hiệu năng định lượng của các thuật toán điều hướng</h3>
-                    <table class="pixel-table">
-                        <thead>
-                            <tr>
-                                <th>Thuật toán</th>
-                                <th>Thời gian (ms)</th>
-                                <th>Tỷ lệ thành công (%)</th>
-                                <th>Độ dài lộ trình</th>
-                                <th>Tỷ lệ tự sát (%)</th>
-                                <th>Bộ nhớ cao điểm (MB)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td class="text-left" style="color: var(--border-pink)">BFS</td>
-                                <td>21</td>
-                                <td>-</td>
-                                <td>-</td>
-                                <td>(Khi bị bom chặn)</td>
-                                <td>-</td>
-                            </tr>
-                            <tr>
-                                <td class="text-left" style="color: var(--border-pink)">DFS</td>
-                                <td>< 1</td>
-                                <td>-</td>
-                                <td>Quá dài</td>
-                                <td>(Kẹt vào ngõ cụt)</td>
-                                <td>21</td>
-                            </tr>
-                            <tr>
-                                <td class="text-left" style="color: var(--border-green)">Greedy Search</td>
-                                <td>-</td>
-                                <td>-</td>
-                                <td>-</td>
-                                <td>(Lao vào vùng bom)</td>
-                                <td>21</td>
-                            </tr>
-                            <tr>
-                                <td class="text-left" style="color: var(--border-green)">A* (Có thông tin)</td>
-                                <td>7</td>
-                                <td>-</td>
-                                <td>Ngắn nhất</td>
-                                <td>(Tránh bom tuyệt đối)</td>
-                                <td>14</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    
-                    <p><strong>Phân tích kết quả:</strong> Số liệu tại Bảng 1 chỉ ra sự vượt trội của nhóm có thông tin. A* đạt độ dài lộ trình trung bình ngắn nhất và có tỷ lệ tự sát thấp kỷ lục nhờ tích hợp Danger Map vào hàm chi phí. DFS chạy nhanh nhất nhưng hoàn toàn không phù hợp do lộ trình quá dài và dễ đưa tác nhân vào ngõ cụt.</p>
-                </div>
-                <div class="slide-visual arcade-card">
-                    <div style="color: #64748b; font-family: 'Press Start 2P', monospace; text-align:center; font-size: 0.8rem; line-height: 2; margin: auto;">
-                        [ TRỰC QUAN HÓA BẢNG 1 ]<br><br><span style="font-size:0.5rem">Visual Placeholder</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- SLIDE 3: Bảng 2 -->
-        <div class="slide" id="slide-3">
-            <h1>ĐÁNH GIÁ HIỆU NĂNG</h1>
-            <div class="subtitle">Bộ Sinh Bản Đồ (CSP kết hợp Local Search)</div>
-            <div class="slide-content-split">
-                <div class="slide-text">
-                    <p>Thực nghiệm tiến hành so sánh ba phương pháp sinh bản đồ: Sinh ngẫu nhiên thuần túy, Sinh bằng CSP thuần túy, và Sinh lai ghép bằng CSP kết hợp tối ưu hóa bằng thuật toán di truyền Genetic Algorithm (CSP + GA).</p>
-                    
-                    <h3>Bảng 2: So sánh chất lượng bản đồ</h3>
-                    <table class="pixel-table">
-                        <thead>
-                            <tr>
-                                <th>Phương pháp sinh</th>
-                                <th>Tgian tạo (s)</th>
-                                <th>Tỷ lệ hợp lệ (%)</th>
-                                <th>Độ đối xứng [0,1]</th>
-                                <th>Lệch tỷ lệ thắng (%)</th>
-                                <th>Phân tán vật phẩm [0,1]</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td class="text-left">Sinh ngẫu nhiên</td>
-                                <td>-</td>
-                                <td>-</td>
-                                <td>-</td>
-                                <td>(Mất cân bằng lớn)</td>
-                                <td>-</td>
-                            </tr>
-                            <tr>
-                                <td class="text-left" style="color: var(--border-yellow)">CSP thuần túy</td>
-                                <td>-</td>
-                                <td>100</td>
-                                <td>Hoàn hảo</td>
-                                <td>8</td>
-                                <td>-</td>
-                            </tr>
-                            <tr>
-                                <td class="text-left" style="color: var(--border-cyan)">CSP + GA (Đề xuất)</td>
-                                <td>-</td>
-                                <td>100</td>
-                                <td>Cực kỳ cân bằng</td>
-                                <td>~0</td>
-                                <td>Tối ưu</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    
-                    <p><strong>Phân tích kết quả:</strong> Việc áp dụng CSP đảm bảo tỷ lệ bản đồ hợp lệ chơi được luôn đạt 100% nhờ các ràng buộc chặn nghiêm ngặt trong backtracking. Khi tích hợp thêm thuật toán di truyền (GA) để tinh chỉnh gạch và vật phẩm, độ chênh lệch tỷ lệ thắng giảm xuống mức tối thiểu, mang lại sự cân bằng hoàn hảo cho các trận đối kháng chuyên nghiệp.</p>
-                </div>
-                <div class="slide-visual arcade-card">
-                    <div style="color: #64748b; font-family: 'Press Start 2P', monospace; text-align:center; font-size: 0.8rem; line-height: 2; margin: auto;">
-                        [ TRỰC QUAN HÓA BẢNG 2 ]<br><br><span style="font-size:0.5rem">Visual Placeholder</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- SLIDE 4: Bảng 3 -->
-        <div class="slide" id="slide-4">
-            <h1>ĐỐI KHÁNG THỰC TẾ</h1>
-            <div class="subtitle">Hiệu Năng Tác Nhân Lai Ghép (Đề Xuất)</div>
-            <div class="slide-content-split">
-                <div class="slide-text">
-                    <p>Thực nghiệm tiến hành cho các cấu hình tác nhân đối đầu trực tiếp với nhau qua 500 trận đấu để đo lường năng lực chiến đấu thực tế.</p>
-                    
-                    <h3>Bảng 3: Ma trận kết quả đối kháng</h3>
-                    <table class="pixel-table">
-                        <thead>
-                            <tr>
-                                <th>Tác nhân A</th>
-                                <th>Tác nhân B</th>
-                                <th>Thắng A (%)</th>
-                                <th>Thắng B (%)</th>
-                                <th>Hòa (%)</th>
-                                <th>Phản hồi (ms)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td class="text-left">Minimax Alpha-Beta</td>
-                                <td class="text-left">SimpleAgent</td>
-                                <td style="color: var(--border-cyan)">Áp đảo</td>
-                                <td>-</td>
-                                <td>3</td>
-                                <td>-</td>
-                            </tr>
-                            <tr>
-                                <td class="text-left">MCTS (Rollout ngẫu nhiên)</td>
-                                <td class="text-left">Minimax Alpha-Beta</td>
-                                <td>Rất thấp</td>
-                                <td style="color: var(--border-cyan)">Cao</td>
-                                <td>-</td>
-                                <td>-</td>
-                            </tr>
-                            <tr>
-                                <td class="text-left">MCTS (Rollout bi quan)</td>
-                                <td class="text-left">Minimax Alpha-Beta</td>
-                                <td>Cải thiện (13%)</td>
-                                <td style="color: var(--border-cyan)">Cao</td>
-                                <td>-</td>
-                                <td>-</td>
-                            </tr>
-                            <tr>
-                                <td class="text-left" style="color: var(--border-green); font-weight: bold;">Lai Ghép (Đề xuất)</td>
-                                <td class="text-left">Minimax (Độ sâu 6)</td>
-                                <td style="color: var(--border-cyan)">Áp đảo</td>
-                                <td>Thấp</td>
-                                <td>-</td>
-                                <td style="color: var(--border-yellow)">Rất nhanh</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    
-                    <p><strong>Phân tích kết quả:</strong> MCTS cơ chế rollout ngẫu nhiên có hiệu năng rất kém do "tactical blind spot". Đáng chú ý nhất, Tác nhân Lai Ghép đề xuất đạt hiệu suất chiến thắng áp đảo trước tác nhân Minimax độ sâu 6. Điểm mấu chốt là thời gian phản hồi cực kì tối ưu nhờ cơ chế phân cấp quyết định thông minh của Cây hành vi, chỉ bật Minimax khi cận chiến.</p>
-                </div>
-                <div class="slide-visual arcade-card">
-                    <div style="color: #64748b; font-family: 'Press Start 2P', monospace; text-align:center; font-size: 0.8rem; line-height: 2; margin: auto;">
-                        [ TRỰC QUAN HÓA BẢNG 3 ]<br><br><span style="font-size:0.5rem">Visual Placeholder</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- SLIDE 5: Visual Map Gen -->
-        <div class="slide" id="slide-5">
-            <h1>MÔ PHỎNG SINH BẢN ĐỒ</h1>
-            <div class="subtitle">Khởi Tạo Bằng Thuật Toán CSP & Genetic Algorithm</div>
-            <div class="slide-content-split">
-                <div class="slide-text">
-                    <p>Mô phỏng quá trình thuật toán ràng buộc thỏa mãn (CSP) sắp xếp gạch và vật phẩm một cách đối xứng hoàn hảo trên bản đồ kích thước 15x13.</p>
-                    <p>Các tiêu chí được đảm bảo nghiêm ngặt:</p>
-                    <ul style="margin-left: 1.5rem; margin-bottom: 1rem; line-height: 1.8; color: var(--border-cyan);">
-                        <li><strong>Không bị chặn lối:</strong> 4 góc xuất phát của người chơi luôn có vùng an toàn hình chữ L.</li>
-                        <li><strong>Đối xứng tuyệt đối:</strong> Gạch (Brick) và vật phẩm ẩn (Item) được sinh theo tâm đối xứng 4 góc.</li>
-                        <li><strong>Phân bố vật phẩm:</strong> Tránh tình trạng dồn cục vật phẩm ở một góc thông qua lai ghép GA.</li>
-                    </ul>
-                    <button class="btn-arcade btn-arcade-pink" onclick="generateDemoMap()" style="font-size: 0.7rem; padding: 1rem; width: 100%; margin-top: 1rem;">🎲 SINH BẢN ĐỒ MỚI</button>
-                </div>
-                <div class="slide-visual" style="border: none; background: transparent;">
-                    <!-- A new board for demo -->
-                    <div class="board-frame" style="transform: scale(0.9); transform-origin: center;">
-                        <div class="board" id="demo-board">
-                            <!-- JS will inject tiles here -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-    </div> <!-- End slideshow-wrapper -->
+    </div> <!-- End game-wrapper -->
 
     <script>
-        // Landing Page Scroll Navigation
-        let currentSlide = 1;
-        const totalSlides = 5;
-
-        function navTo(n) {
-            currentSlide = n;
-            document.getElementById('slide-' + n).scrollIntoView({ behavior: 'smooth' });
-        }
-
-        function nextSlide() {
-            currentSlide = currentSlide < totalSlides ? currentSlide + 1 : totalSlides;
-            document.getElementById('slide-' + currentSlide).scrollIntoView({ behavior: 'smooth' });
-        }
-        function prevSlide() {
-            currentSlide = currentSlide > 1 ? currentSlide - 1 : 1;
-            document.getElementById('slide-' + currentSlide).scrollIntoView({ behavior: 'smooth' });
-        }
-        // Support keyboard navigation
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'PageDown' || e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-                e.preventDefault();
-                nextSlide();
-            }
-            if (e.key === 'PageUp' || e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-                e.preventDefault();
-                prevSlide();
-            }
-        });
-
-        // Intersection Observer to update active nav link
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const id = entry.target.id;
-                    document.querySelectorAll('.top-nav a').forEach(a => {
-                        a.classList.toggle('active', a.getAttribute('href') === '#' + id);
-                    });
-                    currentSlide = parseInt(id.split('-')[1]);
-                }
-            });
-        }, { threshold: 0.5 });
-
-        document.querySelectorAll('.slide').forEach(slide => observer.observe(slide));
-
-        // DEMO MAP GENERATION
-        function generateDemoMap() {
-            const board = document.getElementById('demo-board');
-            if (!board) return;
-            board.innerHTML = '';
-            const width = 15;
-            const height = 13;
-            let grid = Array(height).fill().map(() => Array(width).fill('empty'));
-
-            // 1. Unbreakable walls
-            for (let y = 1; y < height; y += 2) {
-                for (let x = 1; x < width; x += 2) {
-                    grid[y][x] = 'wall';
-                }
-            }
-
-            // 2. Safe zones
-            const safeZones = [
-                [0,0], [1,0], [0,1],
-                [0,14], [1,14], [0,13],
-                [12,0], [11,0], [12,1],
-                [12,14], [11,14], [12,13]
-            ];
-
-            // 3. Symmetric bricks
-            for (let y = 0; y <= height / 2; y++) {
-                for (let x = 0; x <= width / 2; x++) {
-                    if (grid[y][x] === 'wall') continue;
-                    // Check safe zone
-                    if (safeZones.some(pos => pos[0] === y && pos[1] === x)) continue;
-                    
-                    // 40% chance of brick
-                    if (Math.random() < 0.4) {
-                        grid[y][x] = 'brick';
-                        grid[height - 1 - y][x] = 'brick';
-                        grid[y][width - 1 - x] = 'brick';
-                        grid[height - 1 - y][width - 1 - x] = 'brick';
-                    }
-                }
-            }
-
-            // 4. Items (Render directly for visualization)
-            let itemsPlaced = 0;
-            let attempts = 0;
-            while (itemsPlaced < 12 && attempts < 100) {
-                let x = Math.floor(Math.random() * (width/2));
-                let y = Math.floor(Math.random() * (height/2));
-                if (grid[y][x] === 'brick') {
-                    const itemType = Math.random() < 0.5 ? 'item-capacity' : 'item-radius';
-                    grid[y][x] = itemType;
-                    grid[height - 1 - y][x] = itemType;
-                    grid[y][width - 1 - x] = itemType;
-                    grid[height - 1 - y][width - 1 - x] = itemType;
-                    itemsPlaced += 4;
-                }
-                attempts++;
-            }
-
-            // Render
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const tile = document.createElement('div');
-                    tile.className = 'tile tile-empty-' + ((x + y) % 2 === 0 ? 'even' : 'odd');
-                    
-                    if (grid[y][x] !== 'empty') {
-                        const layer = document.createElement('div');
-                        layer.className = 'tile tile-' + grid[y][x];
-                        layer.style.width = '100%';
-                        layer.style.height = '100%';
-                        layer.style.position = 'absolute';
-                        layer.style.top = '0';
-                        layer.style.left = '0';
-                        tile.appendChild(layer);
-                    }
-                    board.appendChild(tile);
-                }
-            }
-        }
-        
-        // Initial generation
-        setTimeout(generateDemoMap, 500);
     </script>
 
     <script src="app.js"></script>
