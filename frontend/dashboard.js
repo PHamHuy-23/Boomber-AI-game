@@ -1,1347 +1,1659 @@
 const API_URL = 'http://127.0.0.1:8000';
 
-const ACTIONS = {
-    STOP: 0,
-    LEFT: 1,
-    RIGHT: 2,
-    UP: 3,
-    DOWN: 4,
-    BOMB: 5,
-};
-
-const ACTION_LABELS = {
-    0: 'STOP',
-    1: 'LEFT',
-    2: 'RIGHT',
-    3: 'UP',
-    4: 'DOWN',
-    5: 'BOMB',
-};
-
-const AGENT_COLORS = {
-    player_1: '#38bdf8',
-    player_2: '#f472b6',
-    player_3: '#34d399',
-    player_4: '#fbbf24',
-};
-
-const PLAYER_IDS = ['player_1', 'player_2', 'player_3', 'player_4'];
-const MAP_PRESETS = [
-    { value: 'classic', label: 'Classic' },
-    { value: 'csp', label: 'CSP Generated' },
-    { value: 'open', label: 'Open Field' },
-    { value: 'dense', label: 'Dense Maze' },
-];
-
+// Global state
 const state = {
+    activeTab: 'game-tab',
+    sidebarCollapsed: false,
+    isConnected: false,
+    
+    // Module 1: Playground
     game: null,
-    previousGame: null,
-    gameMode: 'god',
-    fowEnabled: false,
-    fowRadius: 4,
-    focusAgent: 'player_1',
+    gameStatus: 'ready', // 'ready', 'running', 'paused', 'game_over'
+    agentCount: 4,
     mapPreset: 'classic',
     seed: 42,
-    agentCount: 4,
     speedMs: 300,
-    running: false,
-    matchStatus: 'ready',
     intervalId: null,
-    availableAgents: [],
+    fowEnabled: false,
+    fowRadius: 4,
     agentConfigs: {
-        player_1: 'manual',
+        player_1: 'minimax',
         player_2: 'minimax',
-        player_3: 'minimax',
-        player_4: 'minimax',
+        player_3: 'expectimax',
+        player_4: 'astar'
     },
-    logs: [],
-    trace: null,
-    traceSelectedNodeId: null,
-    treeTransform: { x: 120, y: 40, scale: 0.76 },
-    treeDrag: { active: false, lastX: 0, lastY: 0 },
+    
+    // Module 2: Tactical Lab
+    labScenario: 'hazard_escape',
+    labAlgo: 'astar',
+    labTick: 0,
+    labHistory: [], // stores steps history for frame-by-frame scrubbing
+    labPlaying: false,
+    labIntervalId: null,
+    labShowOverlay: true,
+    
+    // Module 3: Analytics Dashboard
+    analyticsSource: 'csv',
+    csvMatches: [],
+    analyticsOverview: null,
+    analyticsCompare: null,
+    matches: [],
+    selectedReplayMatch: null,
+    replaySteps: [],
+    replayTick: 0,
+    replayPlaying: false,
+    replayIntervalId: null,
+    replayOverlayMode: 'normal' // 'normal', 'heatmap'
 };
 
+// UI Elements mapping
 const el = {
-    connectionPill: document.getElementById('connection-pill'),
-    stepPill: document.getElementById('step-pill'),
-    gameModePill: document.getElementById('game-mode-pill'),
-    gameStatus: document.getElementById('game-status'),
-    stepCount: document.getElementById('step-count'),
-    lastAction: document.getElementById('last-action'),
-    board: document.getElementById('board'),
-    boardPlaceholder: document.getElementById('board-placeholder'),
-    boardStage: document.querySelector('.board-stage'),
-    focusAgentSelect: document.getElementById('focus-agent-select'),
-    gameViewSelect: document.getElementById('game-view-select'),
-    fowToggle: document.getElementById('chk-fow'),
-    fowRadius: document.getElementById('fow-radius'),
-    speedSlider: document.getElementById('speed-slider'),
-    speedValue: document.getElementById('speed-value'),
-    mapSelect: document.getElementById('map-select'),
-    seedInput: document.getElementById('seed-input'),
-    agentCount: document.getElementById('agent-count'),
-    p1Select: document.getElementById('agent-select-p1'),
-    p2Select: document.getElementById('agent-select-p2'),
-    p3Select: document.getElementById('agent-select-p3'),
-    p4Select: document.getElementById('agent-select-p4'),
-    startBtn: document.getElementById('btn-start'),
-    pauseBtn: document.getElementById('btn-pause'),
-    resumeBtn: document.getElementById('btn-resume'),
-    resetBtn: document.getElementById('btn-reset'),
-    agentStatusList: document.getElementById('agent-status-list'),
-    labAlgorithmSelect: document.getElementById('lab-algorithm-select'),
-    labScenarioSelect: document.getElementById('lab-scenario-select'),
-    labViewSelect: document.getElementById('lab-view-select'),
-    labFocusSelect: document.getElementById('lab-focus-select'),
-    labRefreshBtn: document.getElementById('lab-refresh-btn'),
-    labMetaCards: document.getElementById('lab-meta-cards'),
-    labTreeStage: document.getElementById('lab-tree-stage'),
-    labTreeEdges: document.getElementById('lab-tree-edges'),
-    labTreeCanvas: document.getElementById('lab-tree-canvas'),
-    labNodeDetails: document.getElementById('lab-node-details'),
-    labFrontier: document.getElementById('lab-frontier'),
-    labClosed: document.getElementById('lab-closed'),
-    labInsight: document.getElementById('lab-insight'),
-    labEventLog: document.getElementById('lab-event-log'),
-    labLogSearch: document.getElementById('lab-log-search'),
-    labAgentFilter: document.getElementById('lab-agent-filter'),
-    labClearLog: document.getElementById('lab-clear-log'),
+    // Sidebar & layout
+    sidebar: document.getElementById('app-sidebar'),
+    collapseBtn: document.getElementById('collapse-btn'),
+    collapseIcon: document.getElementById('collapse-icon'),
+    pageTitle: document.getElementById('page-display-title'),
+    connIndicator: document.getElementById('conn-indicator'),
+    connText: document.getElementById('conn-text'),
+    navItems: document.querySelectorAll('.nav-item'),
+    sections: document.querySelectorAll('.dashboard-section'),
+    
+    // Module 1: Playground
+    pgStart: document.getElementById('pg-start-btn'),
+    pgPause: document.getElementById('pg-pause-btn'),
+    pgReset: document.getElementById('pg-reset-btn'),
+    pgStep: document.getElementById('pg-step-btn'),
+    pgSpeedSlider: document.getElementById('pg-speed-slider'),
+    pgSpeedVal: document.getElementById('pg-speed-val'),
+    pgMapPreset: document.getElementById('pg-map-preset'),
+    pgSeed: document.getElementById('pg-seed'),
+    pgAgentCount: document.getElementById('pg-agent-count'),
+    pgFowChk: document.getElementById('pg-fow-chk'),
+    pgFowRadiusGroup: document.getElementById('pg-fow-radius-group'),
+    pgFowRadius: document.getElementById('pg-fow-radius'),
+    
+    pgBoard: document.getElementById('game-playground-board'),
+    pgFps: document.getElementById('board-fps'),
+    pgTick: document.getElementById('board-tick'),
+    pgTime: document.getElementById('board-time'),
+    
+    pgAlgoP1: document.getElementById('pg-algo-p1'),
+    pgAlgoP2: document.getElementById('pg-algo-p2'),
+    pgAlgoP3: document.getElementById('pg-algo-p3'),
+    pgAlgoP4: document.getElementById('pg-algo-p4'),
+    
+    telP1: document.getElementById('tel-p1'),
+    telP2: document.getElementById('tel-p2'),
+    telP3: document.getElementById('tel-p3'),
+    telP4: document.getElementById('tel-p4'),
+    
+    // Module 2: Tactical Lab
+    scenarioItems: document.querySelectorAll('.scenario-item'),
+    labSmallBoard: document.getElementById('lab-small-board'),
+    labTickVal: document.getElementById('lab-tick'),
+    labAlgorithm: document.getElementById('lab-algorithm'),
+    labDecisionLog: document.getElementById('lab-decision-log'),
+    labOverlayChk: document.getElementById('lab-overlay-chk'),
+    
+    labPlay: document.getElementById('lab-play-btn'),
+    labPrev: document.getElementById('lab-prev-btn'),
+    labNext: document.getElementById('lab-next-btn'),
+    labReplay: document.getElementById('lab-replay-btn'),
+    
+    // Module 3: Analytics Dashboard
+    btnAnalyticsCsv: document.getElementById('btn-analytics-csv'),
+    btnAnalyticsDb: document.getElementById('btn-analytics-db'),
+    cardTotalMatches: document.getElementById('card-total-matches'),
+    cardAvgLatency: document.getElementById('card-avg-latency'),
+    cardAvgScore: document.getElementById('card-avg-score'),
+    cardResources: document.getElementById('card-resources'),
+    
+    replayMatchesList: document.getElementById('replay-matches-list'),
+    repMatchDisplay: document.getElementById('rep-match-display'),
+    repTickDisplay: document.getElementById('rep-tick-display'),
+    replayBoard: document.getElementById('replay-board'),
+    repEvents: document.getElementById('rep-events'),
+    
+    repPlay: document.getElementById('rep-play-btn'),
+    repPrev: document.getElementById('rep-prev-btn'),
+    repNext: document.getElementById('rep-next-btn'),
+    repScrub: document.getElementById('rep-scrub'),
+    
+    exportCsvBtn: document.getElementById('export-csv'),
+    exportJsonBtn: document.getElementById('export-json'),
+    exportPngBtn: document.getElementById('export-png'),
 };
 
-function coordKey(x, y) {
-    return `${x},${y}`;
-}
+// Chart instances
+let chartWinrateInstance = null;
+let chartNodesInstance = null;
+let chartHorizonInstance = null;
+let chartTacticalInstance = null;
 
-function nowStamp() {
-    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
+// Initialization
+document.addEventListener('DOMContentLoaded', () => {
+    setupTabNavigation();
+    setupSidebarCollapse();
+    setupPlaygroundHandlers();
+    setupLabHandlers();
+    setupAnalyticsHandlers();
+    
+    // Initial health check and fetch database stats
+    checkServerConnection();
+    setInterval(checkServerConnection, 5000);
+    
+    // Start by initializing playground board visually
+    initPlaygroundGame();
+});
 
-function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
-}
-
-function chebyshev(a, b) {
-    return Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]));
-}
-
-function manhattan(a, b) {
-    return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
-}
-
-function getAgent(stateObj, agentId) {
-    return stateObj?.agents?.[agentId] || null;
-}
-
-function aliveAgents(stateObj) {
-    return Object.values(stateObj?.agents || {}).filter((agent) => agent.is_alive);
-}
-
-function agentLabel(agentId) {
-    if (agentId === 'player_1') return 'P1';
-    if (agentId === 'player_2') return 'P2';
-    if (agentId === 'player_3') return 'P3';
-    if (agentId === 'player_4') return 'P4';
-    return agentId;
-}
-
-function algoName(id) {
-    const found = state.availableAgents.find((a) => a.id === id);
-    return found ? found.name : id;
-}
-
-function setConnection(type, title, description) {
-    if (!el.connectionPill) return;
-    el.connectionPill.className = `pill pill-${type}`;
-    el.connectionPill.textContent = title;
-    if (description) {
-        el.connectionPill.title = description;
-    }
-}
-
-function setGameModeLabel() {
-    if (!el.gameModePill) return;
-    const label = state.gameMode === 'god' ? 'God View' : 'Agent View';
-    el.gameModePill.textContent = state.fowEnabled && state.gameMode === 'agent'
-        ? `${label} + FOW`
-        : label;
-}
-
-function setBoardPlaceholder(show) {
-    if (el.boardPlaceholder) el.boardPlaceholder.hidden = !show;
-    if (el.board) el.board.style.visibility = show ? 'hidden' : 'visible';
-}
-
-function setStepInfo(stepCount) {
-    if (el.stepPill) el.stepPill.textContent = `Step ${stepCount}`;
-    if (el.stepCount) el.stepCount.textContent = `${stepCount}`;
-}
-
-function setSpeed(ms) {
-    state.speedMs = ms;
-    if (el.speedValue) el.speedValue.textContent = `${ms} ms`;
-    if (el.speedSlider) el.speedSlider.value = `${ms}`;
-    if (state.running) {
-        restartLoop();
-    }
-}
-
-function populateSelect(selectEl, options, selectedValue) {
-    if (!selectEl) return;
-    selectEl.innerHTML = '';
-    for (const item of options) {
-        const option = document.createElement('option');
-        option.value = item.value;
-        option.textContent = item.label;
-        selectEl.appendChild(option);
-    }
-    if (selectedValue != null) selectEl.value = selectedValue;
-}
-
-function populateAgentSelects() {
-    const botOptions = state.availableAgents.map((agent) => ({ value: agent.id, label: agent.name }));
-    const allOptions = [{ value: 'manual', label: 'Manual' }, ...botOptions];
-    const activePlayers = PLAYER_IDS.slice(0, state.agentCount);
-    const focusOptions = activePlayers.map((id) => ({ value: id, label: agentLabel(id) }));
-
-    populateSelect(el.p1Select, allOptions, state.agentConfigs.player_1 || 'manual');
-    populateSelect(el.p2Select, botOptions, state.agentConfigs.player_2 || 'minimax');
-    populateSelect(el.p3Select, botOptions, state.agentConfigs.player_3 || 'minimax');
-    populateSelect(el.p4Select, botOptions, state.agentConfigs.player_4 || 'minimax');
-    if (!activePlayers.includes(state.focusAgent)) {
-        state.focusAgent = activePlayers[0] || 'player_1';
-    }
-    populateSelect(el.focusAgentSelect, focusOptions, state.focusAgent);
-    populateSelect(el.labFocusSelect, focusOptions, state.focusAgent);
-}
-
-function populateLabAlgorithmSelect() {
-    const options = state.availableAgents.map((agent) => ({ value: agent.id, label: agent.name }));
-    populateSelect(el.labAlgorithmSelect, options, el.labAlgorithmSelect?.value || 'bfs');
-}
-
-function populateMapSelect() {
-    populateSelect(el.mapSelect, MAP_PRESETS, state.mapPreset);
-}
-
-function updateAgentCountUI() {
-    const count = Number(el.agentCount.value || 4);
-    state.agentCount = clamp(count, 2, 4);
-    el.agentCount.value = `${state.agentCount}`;
-    const rows = [el.p1Select, el.p2Select, el.p3Select, el.p4Select];
-    rows.forEach((select, index) => {
-        if (!select) return;
-        const enabled = index < state.agentCount;
-        select.disabled = !enabled;
-        select.parentElement.style.opacity = enabled ? '1' : '0.35';
-    });
-    populateAgentSelects();
-}
-
-function extractSettingsFromUI() {
-    state.gameMode = el.gameViewSelect.value;
-    state.fowEnabled = el.fowToggle.checked;
-    state.fowRadius = clamp(Number(el.fowRadius.value || 4), 1, 6);
-    state.mapPreset = el.mapSelect.value;
-    state.seed = Number(el.seedInput.value || 42);
-    state.agentCount = clamp(Number(el.agentCount.value || 4), 2, 4);
-    state.focusAgent = el.focusAgentSelect.value || 'player_1';
-    state.agentConfigs = {
-        player_1: el.p1Select.value || 'manual',
-        player_2: el.p2Select.value || 'minimax',
-        player_3: el.p3Select.value || 'minimax',
-        player_4: el.p4Select.value || 'minimax',
-    };
-}
-
-function visibleCellSet(gameState) {
-    const visible = new Set();
-    if (!gameState) return visible;
-    if (state.gameMode === 'god' || !state.fowEnabled) {
-        for (let y = 0; y < gameState.height; y += 1) {
-            for (let x = 0; x < gameState.width; x += 1) {
-                visible.add(coordKey(x, y));
-            }
-        }
-        return visible;
-    }
-
-    const focus = getAgent(gameState, state.focusAgent) || aliveAgents(gameState)[0];
-    if (!focus) return visible;
-    const centers = [[focus.x, focus.y], ...aliveAgents(gameState).filter((agent) => agent.id !== focus.id).map((agent) => [agent.x, agent.y])];
-    for (let y = 0; y < gameState.height; y += 1) {
-        for (let x = 0; x < gameState.width; x += 1) {
-            if (centers.some((center) => chebyshev(center, [x, y]) <= state.fowRadius)) {
-                visible.add(coordKey(x, y));
-            }
-        }
-    }
-    return visible;
-}
-
-function tileClassFor(tileValue, x, y, gameState) {
-    if (tileValue === 1) return 'tile-wall';
-    if (tileValue === 2) return 'tile-brick';
-    if (tileValue === 3) return 'tile-bomb';
-    if (tileValue === 4) {
-        const origin = Array.isArray(gameState.explosion_origins)
-            && gameState.explosion_origins.some((coord) => coord[0] === x && coord[1] === y);
-        if (origin) return 'tile-explosion-center';
-        const above = y > 0 && gameState.grid[y - 1][x] === 4;
-        const below = y < gameState.height - 1 && gameState.grid[y + 1][x] === 4;
-        return above || below ? 'tile-explosion-vertical' : 'tile-explosion-horizontal';
-    }
-    if (tileValue === 5) return 'tile-item-radius';
-    if (tileValue === 6) return 'tile-item-capacity';
-    return (x + y) % 2 === 0 ? 'tile-empty-even' : 'tile-empty-odd';
-}
-
-function resizeBoard(gameState) {
-    if (!el.board || !gameState) return;
-    const stageWidth = Math.max(320, el.boardStage?.clientWidth || 1000);
-    const size = clamp(Math.floor((stageWidth - 80) / gameState.width), 26, 40);
-    document.documentElement.style.setProperty('--cell-size', `${size}px`);
-    el.board.style.gridTemplateColumns = `repeat(${gameState.width}, var(--cell-size))`;
-    el.board.style.gridTemplateRows = `repeat(${gameState.height}, var(--cell-size))`;
-}
-
-function addLog(entry) {
-    state.logs.unshift(entry);
-    state.logs = state.logs.slice(0, 200);
-    renderLogs();
-}
-
-function describeReason(agentId, action, gameState) {
-    if (state.agentConfigs[agentId] === 'manual') {
-        return 'Manual input from the player.';
-    }
-    const focus = getAgent(gameState, agentId);
-    if (!focus) return 'Agent unavailable.';
-    const nearestBomb = nearestEntityDistance([focus.x, focus.y], gameState.bombs.map((bomb) => [bomb.x, bomb.y]));
-    const nearestItem = nearestEntityDistance([focus.x, focus.y], itemCells(gameState));
-    const nearestEnemy = nearestEntityDistance([focus.x, focus.y], aliveAgents(gameState).filter((a) => a.id !== agentId).map((a) => [a.x, a.y]));
-    return `${algoName(state.agentConfigs[agentId])} picked ${ACTION_LABELS[action] || 'STOP'} | bomb dist ${nearestBomb ?? 'n/a'}, item dist ${nearestItem ?? 'n/a'}, enemy dist ${nearestEnemy ?? 'n/a'}`;
-}
-
-function itemCells(gameState) {
-    const cells = [];
-    for (let y = 0; y < gameState.height; y += 1) {
-        for (let x = 0; x < gameState.width; x += 1) {
-            if (gameState.grid[y][x] === 5 || gameState.grid[y][x] === 6) cells.push([x, y]);
-        }
-    }
-    return cells;
-}
-
-function nearestEntityDistance(origin, positions) {
-    if (!positions.length) return null;
-    return positions.reduce((best, pos) => Math.min(best, manhattan(origin, pos)), Infinity);
-}
-
-function renderBoard() {
-    const gameState = state.game;
-    if (!gameState || !el.board) {
-        setBoardPlaceholder(true);
-        return;
-    }
-    setBoardPlaceholder(false);
-    resizeBoard(gameState);
-
-    const visible = visibleCellSet(gameState);
-    el.board.innerHTML = '';
-
-    for (let y = 0; y < gameState.height; y += 1) {
-        for (let x = 0; x < gameState.width; x += 1) {
-            const cell = document.createElement('div');
-            const tileValue = gameState.grid[y][x];
-            const visibleHere = visible.has(coordKey(x, y));
-            cell.className = `tile ${visibleHere ? tileClassFor(tileValue, x, y, gameState) : 'tile-fog'}`;
-
-            if (visibleHere) {
-                const agentsLayer = document.createElement('div');
-                agentsLayer.className = 'agents-layer';
-                for (const agent of Object.values(gameState.agents || {})) {
-                    if (agent.x === x && agent.y === y) {
-                        const sprite = document.createElement('div');
-                        if (agent.is_alive) {
-                            sprite.className = `agent agent-${agent.id} dir-${agent.direction || 'down'}`;
-                        } else {
-                            sprite.className = `agent agent-${agent.id} agent-dead`;
-                        }
-                        agentsLayer.appendChild(sprite);
-                    }
+// Sidebar & Tabs Navigation
+function setupTabNavigation() {
+    el.navItems.forEach(item => {
+        item.addEventListener('click', () => {
+            el.navItems.forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
+            
+            const tabId = item.getAttribute('data-tab');
+            state.activeTab = tabId;
+            
+            el.sections.forEach(section => {
+                section.classList.remove('active');
+                if (section.id === tabId) {
+                    section.classList.add('active');
                 }
-                cell.appendChild(agentsLayer);
+            });
+            
+            // Set header title
+            const labelText = item.querySelector('.nav-label').textContent;
+            el.pageTitle.textContent = labelText;
+            
+            // If switched to analytics tab, refresh database data
+            if (tabId === 'analytics-tab') {
+                loadAnalyticsData();
             }
+        });
+    });
+}
 
-            el.board.appendChild(cell);
+function setupSidebarCollapse() {
+    el.collapseBtn.addEventListener('click', () => {
+        state.sidebarCollapsed = !state.sidebarCollapsed;
+        if (state.sidebarCollapsed) {
+            el.sidebar.classList.add('collapsed');
+            el.collapseIcon.innerHTML = `
+                <polyline points="13 17 18 12 13 7"></polyline>
+                <polyline points="6 17 11 12 6 7"></polyline>
+            `;
+        } else {
+            el.sidebar.classList.remove('collapsed');
+            el.collapseIcon.innerHTML = `
+                <polyline points="11 17 6 12 11 7"></polyline>
+                <polyline points="18 17 13 12 18 7"></polyline>
+            `;
         }
-    }
-}
-
-function renderStatus() {
-    const gameState = state.game;
-    if (!gameState) return;
-    setStepInfo(gameState.step_count || 0);
-    if (el.gameStatus) {
-        const label = {
-            ready: 'Ready',
-            running: 'Running',
-            paused: 'Paused',
-            game_over: 'Game Over',
-        }[state.matchStatus] || 'Ready';
-        el.gameStatus.textContent = label;
-    }
-    setGameModeLabel();
-
-    if (!el.agentStatusList) return;
-    el.agentStatusList.innerHTML = '';
-    for (const agent of Object.values(gameState.agents || {})) {
-        const row = document.createElement('div');
-        row.className = 'status-row';
-        const left = document.createElement('div');
-        left.className = 'status-name';
-        const dot = document.createElement('span');
-        dot.className = 'status-dot';
-        dot.style.background = AGENT_COLORS[agent.id] || '#fff';
-        const label = document.createElement('span');
-        const algo = state.agentConfigs[agent.id] || 'manual';
-        label.textContent = `${agentLabel(agent.id)} · ${algo === 'manual' ? 'Manual' : algoName(algo)}`;
-        left.appendChild(dot);
-        left.appendChild(label);
-
-        const right = document.createElement('div');
-        right.className = 'status-meta';
-        right.innerHTML = agent.is_alive
-            ? `HP ${agent.lives} | Bombs ${agent.bombs_left}/${agent.max_bombs} | Range ${agent.bomb_range}`
-            : 'Eliminated';
-        row.appendChild(left);
-        row.appendChild(right);
-        el.agentStatusList.appendChild(row);
-    }
-}
-
-function pushActionLogs(prevState, nextState, response) {
-    const now = nowStamp();
-    if (!nextState) return;
-    const prevAgents = prevState?.agents || {};
-    const nextAgents = nextState.agents || {};
-    for (const agentId of Object.keys(nextAgents)) {
-        const prev = prevAgents[agentId];
-        const next = nextAgents[agentId];
-        if (!prev || !next) continue;
-        const moved = prev.x !== next.x || prev.y !== next.y;
-        const bombChange = next.bombs_left !== prev.bombs_left;
-        const died = prev.is_alive && !next.is_alive;
-        if (moved || bombChange || died) {
-            const action = died
-                ? 'Lost all lives'
-                : moved
-                    ? `Moved to (${next.x},${next.y})`
-                    : bombChange
-                        ? 'Bomb capacity changed'
-                        : 'State updated';
-            addLog({
-                time: now,
-                step: nextState.step_count,
-                agent: agentLabel(agentId),
-                action,
-                detail: describeReason(agentId, moved ? 'MOVE' : 'STOP', nextState),
-                filterAgent: agentId,
-            });
-        }
-    }
-    if (response?.status === 'game_over') {
-        addLog({
-            time: now,
-            step: nextState.step_count,
-            agent: 'SYSTEM',
-            action: 'Match ended',
-            detail: 'The simulation reached the end state.',
-            filterAgent: 'system',
-        });
-    }
-}
-
-function buildTrace(gameState) {
-    const algoId = el.labAlgorithmSelect.value;
-    const scenario = el.labScenarioSelect.value;
-    const viewMode = el.labViewSelect.value;
-    const focusId = el.labFocusSelect.value || state.focusAgent;
-    const focus = getAgent(gameState, focusId) || aliveAgents(gameState)[0];
-    const origin = focus ? [focus.x, focus.y] : [1, 1];
-
-    const candidates = [
-        { id: 'wait', label: 'WAIT', dx: 0, dy: 0, action: 'WAIT' },
-        { id: 'up', label: 'UP', dx: 0, dy: -1, action: 'UP' },
-        { id: 'down', label: 'DOWN', dx: 0, dy: 1, action: 'DOWN' },
-        { id: 'left', label: 'LEFT', dx: -1, dy: 0, action: 'LEFT' },
-        { id: 'right', label: 'RIGHT', dx: 1, dy: 0, action: 'RIGHT' },
-        { id: 'bomb', label: 'BOMB', dx: 0, dy: 0, action: 'BOMB' },
-    ].map((item) => {
-        const nx = origin[0] + item.dx;
-        const ny = origin[1] + item.dy;
-        const inBounds = nx >= 0 && ny >= 0 && nx < gameState.width && ny < gameState.height;
-        const tile = inBounds ? gameState.grid[ny][nx] : 1;
-        const walkable = inBounds && ![1, 2, 3].includes(tile);
-        const danger = dangerScore([nx, ny], gameState);
-        const items = nearestEntityDistance([nx, ny], itemCells(gameState));
-        const enemies = nearestEntityDistance([nx, ny], aliveAgents(gameState).filter((a) => a.id !== focusId).map((a) => [a.x, a.y]));
-        const mobility = walkable ? countMobility([nx, ny], gameState) : 0;
-        const heuristic = baseHeuristic(algoId, danger, items, enemies, mobility, item.id);
-        return { ...item, nx, ny, inBounds, walkable, danger, items, enemies, mobility, heuristic };
-    });
-
-    const sorted = [...candidates].sort((a, b) => b.heuristic - a.heuristic);
-    const root = {
-        id: 'root',
-        kind: 'State',
-        title: `${agentLabel(focusId)} @ (${origin[0]},${origin[1]})`,
-        meta: [
-            `Scenario: ${scenario}`,
-            `View: ${viewMode === 'god' ? 'God View' : 'Agent View'}`,
-            `FOW: ${state.fowEnabled ? 'On' : 'Off'}`,
-        ],
-        x: 1080,
-        y: 78,
-        width: 220,
-        height: 92,
-        score: null,
-        detail: 'Root state captured from the current board and used to generate the algorithm explanation graph.',
-    };
-
-    const nodes = [root];
-    const edges = [];
-    let yBase = 290;
-    const xBase = 280;
-    const xStep = 360;
-    sorted.forEach((candidate, index) => {
-        const id = candidate.id;
-        const node = {
-            id,
-            kind: algoKind(algoId),
-            title: candidate.label,
-            meta: [
-                `Pos: (${candidate.nx},${candidate.ny})`,
-                `h: ${fmt(candidate.heuristic)}`,
-                `danger: ${fmt(candidate.danger)}`,
-                `mobility: ${candidate.mobility}`,
-            ],
-            x: xBase + index * xStep,
-            y: yBase,
-            width: 220,
-            height: 102,
-            score: candidate.heuristic,
-            detail: buildCandidateNarrative(algoId, candidate, gameState),
-        };
-        nodes.push(node);
-        edges.push({ from: 'root', to: id });
-    });
-
-    const focused = sorted[0];
-    if (focused && ['minimax', 'expectimax', 'and_or_search'].includes(algoId)) {
-        const responseY = 500;
-        const responseNodes = buildResponseNodes(algoId, focused, gameState);
-        responseNodes.forEach((child, idx) => {
-            const id = `${focused.id}-r${idx}`;
-            nodes.push({
-                id,
-                kind: child.kind,
-                title: child.title,
-                meta: child.meta,
-                x: focused.x - 40 + idx * 220,
-                y: responseY,
-                width: 210,
-                height: 96,
-                score: child.score,
-                detail: child.detail,
-            });
-            edges.push({ from: focused.id, to: id });
-        });
-    }
-
-    const metaCards = buildMetaCards(algoId, focused, candidates, gameState, origin);
-    const frontier = buildFrontierList(algoId, sorted, candidates, focusId, gameState);
-    const closed = buildClosedList(algoId, sorted, focusId, gameState);
-    const insight = buildInsightList(algoId, focused, candidates, gameState, scenario, viewMode);
-    const selectedNodeId = state.traceSelectedNodeId && nodes.some((n) => n.id === state.traceSelectedNodeId)
-        ? state.traceSelectedNodeId
-        : root.id;
-
-    return {
-        algoId,
-        scenario,
-        viewMode,
-        focusId,
-        origin,
-        nodes,
-        edges,
-        metaCards,
-        frontier,
-        closed,
-        insight,
-        selectedNodeId,
-    };
-}
-
-function algoKind(algoId) {
-    const map = {
-        bfs: 'Breadth-First Search',
-        dfs: 'Depth-First Search',
-        astar: 'A* Search',
-        greedy: 'Greedy Search',
-        hill_climbing: 'Hill Climbing',
-        simulated_annealing: 'Simulated Annealing',
-        and_or_search: 'AND-OR Search',
-        online_search: 'Online Search',
-        backtracking: 'Backtracking',
-        minimax: 'Minimax',
-        expectimax: 'Expectimax',
-        random: 'Random',
-        min_conflicts: 'Min-Conflicts',
-    };
-    return map[algoId] || algoId;
-}
-
-function baseHeuristic(algoId, danger, items, enemies, mobility, actionId) {
-    const itemBonus = items == null ? 0 : 12 - items * 2;
-    const enemyBonus = enemies == null ? 0 : 9 - enemies * 1.5;
-    const safety = 14 - danger * 1.4;
-    const mobilityBonus = mobility * 0.75;
-    const bombPenalty = actionId === 'bomb' ? -6 : 0;
-    const algoBias = {
-        bfs: 10,
-        dfs: 7,
-        astar: 16,
-        greedy: 14,
-        hill_climbing: 13,
-        simulated_annealing: 12,
-        and_or_search: 15,
-        online_search: 11,
-        backtracking: 9,
-        minimax: 13,
-        expectimax: 13.5,
-        random: 5,
-        min_conflicts: 8,
-    }[algoId] || 10;
-    return algoBias + safety + itemBonus + enemyBonus + mobilityBonus + bombPenalty;
-}
-
-function dangerScore(pos, gameState) {
-    if (!pos) return 0;
-    let danger = 0;
-    for (const bomb of gameState.bombs || []) {
-        const dist = manhattan([bomb.x, bomb.y], pos);
-        if (dist <= bomb.range + 1) danger += Math.max(0, 10 - dist * 2.3);
-    }
-    for (const [x, y] of gameState.explosions || []) {
-        danger += manhattan([x, y], pos) === 0 ? 10 : 0;
-    }
-    return danger;
-}
-
-function countMobility(pos, gameState) {
-    if (!pos) return 0;
-    const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-    let count = 0;
-    for (const [dx, dy] of dirs) {
-        const nx = pos[0] + dx;
-        const ny = pos[1] + dy;
-        if (nx < 0 || ny < 0 || nx >= gameState.width || ny >= gameState.height) continue;
-        const tile = gameState.grid[ny][nx];
-        if (![1, 2, 3].includes(tile)) count += 1;
-    }
-    return count;
-}
-
-function buildCandidateNarrative(algoId, candidate, gameState) {
-    const parts = [];
-    if (algoId === 'bfs') {
-        parts.push(`BFS expands ${candidate.label} in layer order.`);
-    } else if (algoId === 'dfs') {
-        parts.push(`DFS dives deeper from ${candidate.label} before backtracking.`);
-    } else if (algoId === 'astar') {
-        parts.push(`A* combines distance and danger for ${candidate.label}.`);
-    } else if (algoId === 'greedy') {
-        parts.push(`Greedy prefers the locally best-looking move ${candidate.label}.`);
-    } else if (algoId === 'hill_climbing') {
-        parts.push(`Hill Climbing tests whether ${candidate.label} improves the current peak.`);
-    } else if (algoId === 'simulated_annealing') {
-        parts.push(`Simulated Annealing may accept ${candidate.label} even if the score dips.`);
-    } else if (algoId === 'minimax') {
-        parts.push(`Minimax evaluates ${candidate.label} by anticipating the opponent.`);
-    } else if (algoId === 'expectimax') {
-        parts.push(`Expectimax averages the response quality of ${candidate.label}.`);
-    } else if (algoId === 'backtracking') {
-        parts.push(`Backtracking explores ${candidate.label} and prunes invalid branches.`);
-    } else if (algoId === 'online_search') {
-        parts.push(`Online Search replans from partial visibility after ${candidate.label}.`);
-    } else if (algoId === 'and_or_search') {
-        parts.push(`AND-OR Search keeps ${candidate.label} if every contingency stays viable.`);
-    } else {
-        parts.push(`Action ${candidate.label} is scored against the current scenario.`);
-    }
-    const bombDist = nearestEntityDistance([candidate.nx, candidate.ny], gameState.bombs.map((b) => [b.x, b.y]));
-    const itemDist = nearestEntityDistance([candidate.nx, candidate.ny], itemCells(gameState));
-    parts.push(`Danger score ${fmt(candidate.danger)} | bombs ${bombDist ?? 'n/a'} | items ${itemDist ?? 'n/a'}.`);
-    return parts.join(' ');
-}
-
-function buildResponseNodes(algoId, candidate, gameState) {
-    const baseScore = candidate.heuristic;
-    const enemyCount = aliveAgents(gameState).length - 1;
-    const branch = [
-        {
-            kind: 'Opponent',
-            title: 'Opponent reply A',
-            meta: [`utility: ${fmt(baseScore - 4)}`, `enemy count: ${enemyCount}`],
-            score: baseScore - 4,
-            detail: 'Best-case opponent reply after the chosen action.',
-        },
-        {
-            kind: 'Opponent',
-            title: 'Opponent reply B',
-            meta: [`utility: ${fmt(baseScore - 8)}`, `enemy count: ${enemyCount}`],
-            score: baseScore - 8,
-            detail: 'Second response branch used to visualize pruning / expectation.',
-        },
-    ];
-    if (algoId === 'expectimax') {
-        branch[0].detail = 'Expected value branch for chance-like opponent behavior.';
-        branch[1].detail = 'Alternative stochastic branch contributing to the expectation.';
-    }
-    if (algoId === 'and_or_search') {
-        branch[0].kind = 'AND';
-        branch[1].kind = 'AND';
-    }
-    return branch;
-}
-
-function buildMetaCards(algoId, focused, candidates, gameState, origin) {
-    const best = candidates.reduce((prev, item) => (item.heuristic > prev.heuristic ? item : prev), candidates[0]);
-    const bombDist = nearestEntityDistance(origin, gameState.bombs.map((b) => [b.x, b.y]));
-    const itemDist = nearestEntityDistance(origin, itemCells(gameState));
-    return [
-        { label: 'Current node', value: focused ? `${agentLabel(state.focusAgent)} @ (${origin[0]},${origin[1]})` : 'No agent' },
-        { label: 'Best action', value: best ? best.label : 'n/a' },
-        { label: 'Bomb distance', value: bombDist == null ? 'n/a' : `${bombDist}` },
-        { label: 'Item distance', value: itemDist == null ? 'n/a' : `${itemDist}` },
-    ];
-}
-
-function buildFrontierList(algoId, sorted, candidates, focusId, gameState) {
-    const frontierOrder = {
-        bfs: sorted,
-        dfs: [...sorted].reverse(),
-        astar: [...sorted].sort((a, b) => b.heuristic - a.heuristic),
-        greedy: [...sorted].sort((a, b) => b.heuristic - a.heuristic),
-        hill_climbing: [...sorted].sort((a, b) => b.heuristic - a.heuristic).slice(0, 3),
-        simulated_annealing: candidates,
-        backtracking: candidates,
-        online_search: candidates,
-        minimax: candidates,
-        expectimax: candidates,
-        and_or_search: candidates,
-    }[algoId] || candidates;
-    return frontierOrder.slice(0, 6).map((item, index) => ({
-        title: `${index + 1}. ${item.label}`,
-        text: `score ${fmt(item.heuristic)} | pos (${item.nx},${item.ny}) | walkable ${item.walkable ? 'yes' : 'no'}`,
-    }));
-}
-
-function buildClosedList(algoId, sorted, focusId, gameState) {
-    const closed = [];
-    const blocked = sorted.filter((item) => !item.walkable);
-    const safe = sorted.filter((item) => item.walkable).slice(-3);
-    if (algoId === 'bfs' || algoId === 'astar') {
-        blocked.forEach((item) => closed.push({ title: item.label, text: `pruned because target tile is blocked or unsafe.` }));
-        safe.forEach((item) => closed.push({ title: item.label, text: `already expanded from the frontier.` }));
-    } else if (algoId === 'dfs') {
-        closed.push({ title: 'Backtrack frontier', text: 'DFS can revisit this branch after a deeper path fails.' });
-        closed.push({ title: 'Dead end', text: 'A branch that cannot improve the score is pruned.' });
-    } else if (algoId === 'simulated_annealing') {
-        closed.push({ title: 'Rejected neighbor', text: 'Rejected because probability test failed at current temperature.' });
-        closed.push({ title: 'Accepted worse state', text: 'Kept because annealing still allowed exploration.' });
-    } else if (algoId === 'minimax' || algoId === 'expectimax') {
-        closed.push({ title: 'Cut branch', text: 'Minimax/Expectimax branch no longer needs expansion.' });
-        closed.push({ title: 'Dominated reply', text: 'Opponent response with low utility was compressed.' });
-    } else {
-        closed.push({ title: 'Inactive branch', text: 'A branch not relevant to the current explanation trace.' });
-        closed.push({ title: 'Pruned state', text: 'Node removed by heuristic or constraints.' });
-    }
-    return closed.slice(0, 5);
-}
-
-function buildInsightList(algoId, focused, candidates, gameState, scenario, viewMode) {
-    const best = candidates.reduce((prev, item) => (item.heuristic > prev.heuristic ? item : prev), candidates[0]);
-    const lines = [];
-    lines.push({ title: 'Scenario', text: `${scenario} in ${viewMode === 'god' ? 'God View' : 'Agent View'} mode.` });
-    if (algoId === 'bfs') {
-        lines.push({ title: 'Frontier queue', text: 'BFS expands the oldest state first and preserves layer order.' });
-        lines.push({ title: 'Choice', text: `The current best-looking action is ${best ? best.label : 'n/a'} because it keeps the queue broad and safe.` });
-    } else if (algoId === 'dfs') {
-        lines.push({ title: 'Depth bias', text: 'DFS commits to the deepest path it can reach before it backtracks.' });
-        lines.push({ title: 'Risk', text: 'This is useful for path discovery, but can ignore safer alternatives.' });
-    } else if (algoId === 'astar') {
-        lines.push({ title: 'g(n), h(n), f(n)', text: 'A* combines travel cost, heuristic distance, and safety in one score.' });
-        lines.push({ title: 'Choice', text: `Node ${best ? best.label : 'n/a'} currently has the highest f-score.` });
-    } else if (algoId === 'greedy') {
-        lines.push({ title: 'Heuristic first', text: 'Greedy ranks the immediate board estimate higher than long-term guarantees.' });
-        lines.push({ title: 'Trade-off', text: 'Fast and intuitive, but it can miss the safest escape path.' });
-    } else if (algoId === 'hill_climbing') {
-        lines.push({ title: 'Local optimum', text: 'Hill Climbing only accepts better neighbors and can stall on a ridge.' });
-        lines.push({ title: 'Current peak', text: `Best neighbor is ${best ? best.label : 'n/a'} with score ${best ? fmt(best.heuristic) : 'n/a'}.` });
-    } else if (algoId === 'simulated_annealing') {
-        const temperature = Math.max(0.1, 8 - (gameState.step_count % 80) / 10);
-        const delta = best ? best.heuristic - candidates[0].heuristic : 0;
-        const accept = Math.min(1, Math.exp(delta / Math.max(temperature, 0.1)));
-        lines.push({ title: 'Temperature', text: `T = ${fmt(temperature, 2)} | cooling schedule still exploring risky moves.` });
-        lines.push({ title: 'Acceptance', text: `Delta energy ${fmt(delta, 2)} | accept probability ${fmt(accept * 100, 1)}%.` });
-    } else if (algoId === 'minimax') {
-        lines.push({ title: 'Alpha-beta', text: 'The tree highlights how some opponent branches can be cut early.' });
-        lines.push({ title: 'Utility', text: `Best candidate is ${best ? best.label : 'n/a'} with utility ${best ? fmt(best.heuristic, 2) : 'n/a'}.` });
-    } else if (algoId === 'expectimax') {
-        lines.push({ title: 'Expected value', text: 'Instead of worst-case pruning only, the tree blends chance and choice.' });
-        lines.push({ title: 'Utility', text: `Expected action is ${best ? best.label : 'n/a'}.` });
-    } else if (algoId === 'backtracking') {
-        lines.push({ title: 'Constraint pruning', text: 'Invalid or unsafe branches are removed as soon as they violate constraints.' });
-        lines.push({ title: 'Consistency', text: 'The trace favors states that preserve reachability and freedom of movement.' });
-    } else if (algoId === 'online_search') {
-        lines.push({ title: 'Partial observability', text: 'The agent replans after every new percept instead of trusting the full map.' });
-        lines.push({ title: 'Local policy', text: 'This view is ideal when Fog of War hides large parts of the arena.' });
-    } else if (algoId === 'and_or_search') {
-        lines.push({ title: 'AND / OR nodes', text: 'The tree combines controllable choice nodes with contingency nodes.' });
-        lines.push({ title: 'Robustness', text: 'A plan is kept only if the risky alternatives still remain viable.' });
-    } else {
-        lines.push({ title: 'Overview', text: 'This algorithm visual trace is scaffolded to make the thought process readable.' });
-        lines.push({ title: 'Best action', text: `${best ? best.label : 'n/a'} currently looks strongest in this scenario.` });
-    }
-    return lines;
-}
-
-function fmt(value, digits = 1) {
-    if (value == null || Number.isNaN(Number(value))) return 'n/a';
-    return Number(value).toFixed(digits);
-}
-
-function renderLabMetaCards(trace) {
-    if (!el.labMetaCards) return;
-    el.labMetaCards.innerHTML = '';
-    trace.metaCards.forEach((card) => {
-        const node = document.createElement('div');
-        node.className = 'mini-card';
-        node.innerHTML = `<div class="label">${card.label}</div><div class="value">${card.value}</div>`;
-        el.labMetaCards.appendChild(node);
     });
 }
 
-function renderList(container, items) {
-    if (!container) return;
-    container.innerHTML = '';
-    if (!items.length) {
-        container.innerHTML = '<div class="list-item"><strong>No entries</strong><span>Nothing to show yet.</span></div>';
-        return;
-    }
-    items.forEach((item) => {
-        const row = document.createElement('div');
-        row.className = 'list-item';
-        row.innerHTML = `<strong>${item.title}</strong><span>${item.text}</span>`;
-        container.appendChild(row);
-    });
-}
-
-function renderNodeDetails(node) {
-    if (!el.labNodeDetails) return;
-    if (!node) {
-        el.labNodeDetails.innerHTML = '<h4>Node details</h4><p>Select a node to inspect its metadata.</p>';
-        return;
-    }
-    const meta = Array.isArray(node.meta) ? node.meta.join(' · ') : node.meta;
-    el.labNodeDetails.innerHTML = `<h4>${node.title}</h4><p>${node.detail || ''}</p><p style="margin-top:8px; color: var(--cyan); font-family:'IBM Plex Mono', monospace; font-size:0.78rem;">${meta || ''}</p>`;
-}
-
-function renderTree(trace) {
-    if (!el.labTreeCanvas || !el.labTreeEdges) return;
-    state.trace = trace;
-    if (!state.traceSelectedNodeId) {
-        state.traceSelectedNodeId = trace.selectedNodeId || trace.nodes[0]?.id || null;
-    } else if (!trace.nodes.some((node) => node.id === state.traceSelectedNodeId)) {
-        state.traceSelectedNodeId = trace.selectedNodeId || trace.nodes[0]?.id || null;
-    }
-
-    const selected = trace.nodes.find((node) => node.id === state.traceSelectedNodeId) || trace.nodes[0];
-    renderNodeDetails(selected);
-
-    const width = Math.max(...trace.nodes.map((n) => n.x + (n.width || 210)), 2200);
-    const height = Math.max(...trace.nodes.map((n) => n.y + (n.height || 96)), 1200);
-    el.labTreeCanvas.style.width = `${width + 260}px`;
-    el.labTreeCanvas.style.height = `${height + 180}px`;
-    el.labTreeEdges.setAttribute('width', `${width + 260}`);
-    el.labTreeEdges.setAttribute('height', `${height + 180}`);
-    el.labTreeEdges.setAttribute('viewBox', `0 0 ${width + 260} ${height + 180}`);
-    el.labTreeCanvas.innerHTML = '';
-    el.labTreeEdges.innerHTML = '';
-
-    trace.edges.forEach((edge) => {
-        const from = trace.nodes.find((node) => node.id === edge.from);
-        const to = trace.nodes.find((node) => node.id === edge.to);
-        if (!from || !to) return;
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', `${from.x + (from.width || 210) / 2}`);
-        line.setAttribute('y1', `${from.y + (from.height || 96)}`);
-        line.setAttribute('x2', `${to.x + (to.width || 210) / 2}`);
-        line.setAttribute('y2', `${to.y}`);
-        line.setAttribute('stroke', 'rgba(148, 163, 184, 0.35)');
-        line.setAttribute('stroke-width', '2');
-        line.setAttribute('stroke-dasharray', '7 6');
-        el.labTreeEdges.appendChild(line);
-    });
-
-    trace.nodes.forEach((node) => {
-        const box = document.createElement('div');
-        box.className = `tree-node ${node.id === state.traceSelectedNodeId ? 'is-selected' : ''}`;
-        box.style.left = `${node.x}px`;
-        box.style.top = `${node.y}px`;
-        box.style.width = `${node.width || 210}px`;
-        box.innerHTML = `
-            <div class="kind">${node.kind}</div>
-            <div class="title">${node.title}</div>
-            <div class="meta">${Array.isArray(node.meta) ? node.meta.map((m) => `<div>${m}</div>`).join('') : node.meta || ''}</div>
-        `;
-        box.addEventListener('click', () => {
-            state.traceSelectedNodeId = node.id;
-            renderTree(trace);
-        });
-        el.labTreeCanvas.appendChild(box);
-    });
-
-    applyTreeTransform();
-}
-
-function applyTreeTransform() {
-    if (!el.labTreeCanvas) return;
-    const { x, y, scale } = state.treeTransform;
-    el.labTreeCanvas.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-    if (el.labTreeEdges) {
-        el.labTreeEdges.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-    }
-}
-
-function setupTreeInteractions() {
-    if (!el.labTreeStage) return;
-    el.labTreeStage.addEventListener('pointerdown', (event) => {
-        if (event.target.closest('.tree-node')) return;
-        state.treeDrag.active = true;
-        state.treeDrag.lastX = event.clientX;
-        state.treeDrag.lastY = event.clientY;
-        el.labTreeStage.setPointerCapture?.(event.pointerId);
-    });
-    el.labTreeStage.addEventListener('pointermove', (event) => {
-        if (!state.treeDrag.active) return;
-        const dx = event.clientX - state.treeDrag.lastX;
-        const dy = event.clientY - state.treeDrag.lastY;
-        state.treeDrag.lastX = event.clientX;
-        state.treeDrag.lastY = event.clientY;
-        state.treeTransform.x += dx;
-        state.treeTransform.y += dy;
-        applyTreeTransform();
-    });
-    window.addEventListener('pointerup', () => {
-        state.treeDrag.active = false;
-    });
-    el.labTreeStage.addEventListener('wheel', (event) => {
-        event.preventDefault();
-        const delta = event.deltaY > 0 ? -0.08 : 0.08;
-        state.treeTransform.scale = clamp(state.treeTransform.scale + delta, 0.35, 1.6);
-        applyTreeTransform();
-    }, { passive: false });
-}
-
-function renderLogs() {
-    if (!el.labEventLog) return;
-    const query = (el.labLogSearch?.value || '').trim().toLowerCase();
-    const agentFilter = el.labAgentFilter?.value || 'all';
-    el.labEventLog.innerHTML = '';
-    const filtered = state.logs.filter((log) => {
-        const matchesQuery = !query
-            || `${log.time} ${log.step} ${log.agent} ${log.action} ${log.detail}`.toLowerCase().includes(query);
-        const matchesAgent = agentFilter === 'all' || log.filterAgent === agentFilter || (agentFilter === 'system' && log.filterAgent === 'system');
-        return matchesQuery && matchesAgent;
-    });
-
-    if (!filtered.length) {
-        el.labEventLog.innerHTML = '<div class="list-item"><strong>No log entries</strong><span>Run the game to populate the trace.</span></div>';
-        return;
-    }
-
-    filtered.forEach((log) => {
-        const row = document.createElement('div');
-        row.className = 'log-row';
-        row.innerHTML = `
-            <div class="time">${log.time}</div>
-            <div class="step">#${log.step}</div>
-            <div class="agent">${log.agent}</div>
-            <div class="detail"><strong>${log.action}</strong><div style="color: var(--muted); margin-top: 4px;">${log.detail}</div></div>
-        `;
-        el.labEventLog.appendChild(row);
-    });
-}
-
-function renderExperimentScaffold() {
-    // static layout only
-}
-
-function refreshLab() {
-    if (!state.game) return;
-    const trace = buildTrace(state.game);
-    renderLabMetaCards(trace);
-    renderList(el.labFrontier, trace.frontier);
-    renderList(el.labClosed, trace.closed);
-    renderList(el.labInsight, trace.insight);
-    renderTree(trace);
-    updateLabFilters();
-}
-
-function updateLabFilters() {
-    if (!el.labAgentFilter) return;
-    const selected = el.labAgentFilter.value || 'all';
-    const options = [
-        { value: 'all', label: 'All agents' },
-        { value: 'player_1', label: 'P1' },
-        { value: 'player_2', label: 'P2' },
-        { value: 'player_3', label: 'P3' },
-        { value: 'player_4', label: 'P4' },
-        { value: 'system', label: 'System' },
-    ];
-    populateSelect(el.labAgentFilter, options, selected);
-}
-
-function collectActions(manualAction = ACTIONS.STOP) {
-    const actions = {};
-    if (state.agentConfigs.player_1 === 'manual') {
-        actions.player_1 = manualAction;
-    }
-    return actions;
-}
-
-async function initGame() {
-    extractSettingsFromUI();
-    setConnection('loading', 'Connecting', 'Initializing the simulation');
-
-    const payload = {
-        agent_configs: state.agentConfigs,
-        fog_of_war: state.fowEnabled,
-        fow_radius: state.fowRadius,
-        map_preset: state.mapPreset,
-        seed: state.seed,
-        agent_count: state.agentCount,
-    };
-
+// Server Health Monitoring
+async function checkServerConnection() {
     try {
-        const response = await fetch(`${API_URL}/api/init`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-        if (!response.ok) throw new Error('init failed');
-        const data = await response.json();
-        state.previousGame = null;
-        state.game = data.state;
-        if (data.agent_configs) {
-            state.agentConfigs = data.agent_configs;
+        const res = await fetch(`${API_URL}/`);
+        if (res.ok) {
+            state.isConnected = true;
+            el.connIndicator.className = 'status-indicator online';
+            el.connText.textContent = 'FastAPI Server Connected';
+        } else {
+            throw new Error();
         }
-        if (data.settings) {
-            state.fowEnabled = !!data.settings.fog_of_war;
-            state.fowRadius = data.settings.fow_radius || state.fowRadius;
-            state.mapPreset = data.settings.map_preset || state.mapPreset;
-            state.seed = data.settings.seed || state.seed;
-            state.agentCount = data.settings.agent_count || state.agentCount;
-        }
-        syncUIFromState();
-        updateAgentCountUI();
-        setBoardPlaceholder(false);
-        setConnection('ready', 'Online', 'Backend connected successfully');
-        state.running = false;
-        state.matchStatus = 'ready';
-        setGameModeLabel();
-        updateFromState(data.state);
-        addLog({
-            time: nowStamp(),
-            step: data.state.step_count || 0,
-            agent: 'SYSTEM',
-            action: 'Initialization',
-            detail: `Map preset ${state.mapPreset}, seed ${state.seed}, agents ${state.agentCount}, FOW ${state.fowEnabled ? 'on' : 'off'}.`,
-            filterAgent: 'system',
-        });
-        refreshLab();
-    } catch (error) {
-        console.error(error);
-        setConnection('offline', 'Offline', 'Backend unavailable');
-        setBoardPlaceholder(true);
+    } catch (e) {
+        state.isConnected = false;
+        el.connIndicator.className = 'status-indicator offline';
+        el.connText.textContent = 'Server Offline';
     }
 }
 
-function updateFromState(nextState, response) {
-    state.previousGame = state.game;
-    state.game = nextState;
-    if (response?.status === 'game_over') {
-        state.matchStatus = 'game_over';
-    } else if (state.running) {
-        state.matchStatus = 'running';
-    } else {
-        state.matchStatus = 'paused';
-    }
-    renderBoard();
-    renderStatus();
-    setGameModeLabel();
-    refreshLab();
-    pushActionLogs(state.previousGame, state.game, response);
-    renderLogs();
-}
-
-async function stepGame(manualAction = ACTIONS.STOP) {
-    if (!state.game) return;
-    const actions = collectActions(manualAction);
-    try {
-        const response = await fetch(`${API_URL}/api/step`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ actions }),
-        });
-        if (!response.ok) throw new Error('step failed');
-        const data = await response.json();
-        updateFromState(data.state, data);
-        if (data.status === 'game_over') {
-            stopLoop();
-            setConnection('ready', 'Online', 'Match complete');
-            addLog({
-                time: nowStamp(),
-                step: data.state.step_count,
-                agent: 'SYSTEM',
-                action: 'Game Over',
-                detail: 'The current match finished and the simulation stopped.',
-                filterAgent: 'system',
-            });
+// ----------------------------------------------------
+// MODULE 1: GAME PLAYGROUND LOGIC
+// ----------------------------------------------------
+function setupPlaygroundHandlers() {
+    el.pgStart.addEventListener('click', startPlaygroundGame);
+    el.pgPause.addEventListener('click', pausePlaygroundGame);
+    el.pgReset.addEventListener('click', initPlaygroundGame);
+    el.pgStep.addEventListener('click', stepPlaygroundGame);
+    
+    // Sliders
+    el.pgSpeedSlider.addEventListener('input', (e) => {
+        state.speedMs = parseInt(e.target.value);
+        el.pgSpeedVal.textContent = `${state.speedMs}ms`;
+        if (state.gameStatus === 'running') {
+            pausePlaygroundGame();
+            startPlaygroundGame();
         }
-    } catch (error) {
-        console.error(error);
-        setConnection('offline', 'Offline', 'Could not advance the match');
-        stopLoop();
-    }
+    });
+    
+    // Checkboxes
+    el.pgFowChk.addEventListener('change', (e) => {
+        state.fowEnabled = e.target.checked;
+        el.pgFowRadiusGroup.style.display = state.fowEnabled ? 'flex' : 'none';
+        renderGameBoard(state.game, 'game-playground-board', 'player_1');
+    });
+    
+    el.pgFowRadius.addEventListener('change', (e) => {
+        state.fowRadius = parseInt(e.target.value) || 4;
+        renderGameBoard(state.game, 'game-playground-board', 'player_1');
+    });
+
+    // Keyboard bindings for manual movement (player_1)
+    window.addEventListener('keydown', (e) => {
+        if (state.activeTab !== 'game-tab' || state.gameStatus !== 'running') return;
+        
+        let actionKey = null;
+        if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') actionKey = 3; // UP
+        if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') actionKey = 4; // DOWN
+        if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') actionKey = 1; // LEFT
+        if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') actionKey = 2; // RIGHT
+        if (e.key === ' ' || e.key === 'Enter') actionKey = 5; // BOMB
+        
+        if (actionKey !== null && el.pgAlgoP1.value === 'manual') {
+            e.preventDefault();
+            // Trigger a game step immediately with user action
+            stepPlaygroundGame(actionKey);
+        }
+    });
+    
+    // Hide / Show Config Blocks based on Player count selection
+    el.pgAgentCount.addEventListener('change', (e) => {
+        state.agentCount = parseInt(e.target.value);
+        updateAgentConfigsUI();
+        initPlaygroundGame();
+    });
+    
+    updateAgentConfigsUI();
 }
 
-function startLoop() {
-    stopLoop();
-    state.running = true;
-    state.matchStatus = 'running';
-    state.intervalId = window.setInterval(() => {
-        stepGame(ACTIONS.STOP);
-    }, state.speedMs);
+function updateAgentConfigsUI() {
+    document.getElementById('block-p3').style.opacity = state.agentCount >= 3 ? '1' : '0.35';
+    document.getElementById('pg-algo-p3').disabled = state.agentCount < 3;
+    
+    document.getElementById('block-p4').style.opacity = state.agentCount >= 4 ? '1' : '0.35';
+    document.getElementById('pg-algo-p4').disabled = state.agentCount < 4;
 }
 
-function stopLoop() {
+async function initPlaygroundGame() {
+    // Stop loop if running
     if (state.intervalId) {
         clearInterval(state.intervalId);
         state.intervalId = null;
     }
-    state.running = false;
-    if (state.game && state.matchStatus !== 'game_over') {
-        state.matchStatus = 'paused';
+    
+    state.gameStatus = 'ready';
+    el.pgStart.disabled = false;
+    el.pgStart.textContent = 'Start';
+    el.pgPause.disabled = true;
+    el.pgPause.textContent = 'Pause';
+    el.pgStep.disabled = false;
+    
+    // Reset telemetry view
+    for (let i = 1; i <= 4; i++) {
+        document.getElementById(`tel-p${i}`).style.display = 'none';
     }
-}
-
-function restartLoop() {
-    if (!state.running) return;
-    startLoop();
-}
-
-async function resetGame() {
-    stopLoop();
-    await initGame();
-}
-
-function syncUIFromState() {
-    if (el.gameViewSelect) el.gameViewSelect.value = state.gameMode;
-    if (el.fowToggle) el.fowToggle.checked = state.fowEnabled;
-    if (el.fowRadius) el.fowRadius.value = `${state.fowRadius}`;
-    if (el.mapSelect) el.mapSelect.value = state.mapPreset;
-    if (el.seedInput) el.seedInput.value = `${state.seed}`;
-    if (el.agentCount) el.agentCount.value = `${state.agentCount}`;
-    if (el.speedSlider) el.speedSlider.value = `${state.speedMs}`;
-    if (el.speedValue) el.speedValue.textContent = `${state.speedMs} ms`;
-    setGameModeLabel();
-}
-
-function setupEvents() {
-    document.querySelectorAll('.topnav button').forEach((button) => {
-        button.addEventListener('click', () => {
-            document.getElementById(button.dataset.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
-    });
-
-    el.gameViewSelect.addEventListener('change', () => {
-        state.gameMode = el.gameViewSelect.value;
-        setGameModeLabel();
-        renderBoard();
-        refreshLab();
-    });
-    el.fowToggle.addEventListener('change', () => {
-        state.fowEnabled = el.fowToggle.checked;
-        renderBoard();
-        refreshLab();
-    });
-    el.fowRadius.addEventListener('change', () => {
-        state.fowRadius = clamp(Number(el.fowRadius.value || 4), 1, 6);
-        el.fowRadius.value = `${state.fowRadius}`;
-        renderBoard();
-        refreshLab();
-    });
-    el.focusAgentSelect.addEventListener('change', () => {
-        state.focusAgent = el.focusAgentSelect.value;
-        el.labFocusSelect.value = state.focusAgent;
-        renderBoard();
-        refreshLab();
-    });
-    el.labFocusSelect.addEventListener('change', () => {
-        state.focusAgent = el.labFocusSelect.value;
-        el.focusAgentSelect.value = state.focusAgent;
-        renderBoard();
-        refreshLab();
-    });
-    el.speedSlider.addEventListener('input', () => setSpeed(Number(el.speedSlider.value)));
-    el.mapSelect.addEventListener('change', () => { state.mapPreset = el.mapSelect.value; });
-    el.seedInput.addEventListener('change', () => { state.seed = Number(el.seedInput.value || 42); });
-    el.agentCount.addEventListener('change', () => {
-        updateAgentCountUI();
-        populateAgentSelects();
-    });
-    [el.p1Select, el.p2Select, el.p3Select, el.p4Select].forEach((select) => {
-        select.addEventListener('change', () => {
-            state.agentConfigs = {
-                player_1: el.p1Select.value || 'manual',
-                player_2: el.p2Select.value || 'minimax',
-                player_3: el.p3Select.value || 'minimax',
-                player_4: el.p4Select.value || 'minimax',
-            };
-        });
-    });
-
-    el.startBtn.addEventListener('click', async () => {
-        await initGame();
-        startLoop();
-    });
-    el.pauseBtn.addEventListener('click', stopLoop);
-    el.resumeBtn.addEventListener('click', () => {
-        if (state.game) startLoop();
-    });
-    el.resetBtn.addEventListener('click', resetGame);
-    el.labRefreshBtn.addEventListener('click', refreshLab);
-    el.labAlgorithmSelect.addEventListener('change', refreshLab);
-    el.labScenarioSelect.addEventListener('change', refreshLab);
-    el.labViewSelect.addEventListener('change', refreshLab);
-    el.labLogSearch.addEventListener('input', renderLogs);
-    el.labAgentFilter.addEventListener('change', renderLogs);
-    el.labClearLog.addEventListener('click', () => {
-        state.logs = [];
-        renderLogs();
-    });
-
-    window.addEventListener('resize', () => renderBoard());
-
-    window.addEventListener('keydown', (event) => {
-        if (event.target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName)) return;
-        if (!state.game) return;
-        if (state.agentConfigs.player_1 !== 'manual') return;
-        let action = null;
-        switch (event.key) {
-            case 'ArrowUp':
-            case 'w':
-            case 'W':
-                action = ACTIONS.UP; break;
-            case 'ArrowDown':
-            case 's':
-            case 'S':
-                action = ACTIONS.DOWN; break;
-            case 'ArrowLeft':
-            case 'a':
-            case 'A':
-                action = ACTIONS.LEFT; break;
-            case 'ArrowRight':
-            case 'd':
-            case 'D':
-                action = ACTIONS.RIGHT; break;
-            case ' ':
-            case 'b':
-            case 'B':
-                action = ACTIONS.BOMB; break;
-            case 'Enter':
-                action = ACTIONS.STOP; break;
-            default:
-                return;
-        }
-        event.preventDefault();
-        stepGame(action);
-    });
-
-    setupTreeInteractions();
-}
-
-async function loadBackendAgents() {
+    
+    if (!state.isConnected) {
+        // Mock simple empty grid on server offline
+        drawEmptyBoard('game-playground-board', 15, 13);
+        return;
+    }
+    
     try {
-        const response = await fetch(`${API_URL}/api/agents`);
-        if (!response.ok) throw new Error('Unable to fetch agents');
-        const data = await response.json();
-        state.availableAgents = data.agents || [];
-    } catch (error) {
-        console.warn('Falling back to a local agent list.', error);
-        state.availableAgents = [
-            { id: 'bfs', name: 'BFS' },
-            { id: 'dfs', name: 'DFS' },
-            { id: 'astar', name: 'A*' },
-            { id: 'greedy', name: 'Greedy' },
-            { id: 'hill_climbing', name: 'Hill Climbing' },
-            { id: 'simulated_annealing', name: 'Simulated Annealing' },
-            { id: 'and_or_search', name: 'AND-OR Search' },
-            { id: 'online_search', name: 'Online Search (LRTA*)' },
-            { id: 'backtracking', name: 'Backtracking' },
-            { id: 'minimax', name: 'Minimax' },
-            { id: 'expectimax', name: 'Expectimax' },
-            { id: 'random', name: 'Random' },
-            { id: 'min_conflicts', name: 'Min-Conflicts' },
-        ];
+        const configs = {
+            player_1: el.pgAlgoP1.value,
+            player_2: el.pgAlgoP2.value,
+            player_3: el.pgAlgoP3.value,
+            player_4: el.pgAlgoP4.value
+        };
+        
+        const res = await fetch(`${API_URL}/api/init`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                agent_configs: configs,
+                map_preset: el.pgMapPreset.value,
+                seed: parseInt(el.pgSeed.value) || 42,
+                agent_count: state.agentCount
+            })
+        });
+        
+        if (res.ok) {
+            const data = await res.json();
+            state.game = data.state;
+            state.agentConfigs = data.agent_configs;
+            
+            // Show telemetry rows
+            for (let i = 1; i <= state.agentCount; i++) {
+                document.getElementById(`tel-p${i}`).style.display = 'grid';
+            }
+            
+            updateTelemetry(state.game);
+            renderGameBoard(state.game, 'game-playground-board', 'player_1');
+            
+            el.pgTick.textContent = '0';
+            el.pgTime.textContent = '300s';
+            el.pgFps.textContent = '0';
+        }
+    } catch (e) {
+        console.error("Failed to initialize playground", e);
     }
 }
 
-function initStaticControls() {
-    populateMapSelect();
-    populateSelect(el.gameViewSelect, [
-        { value: 'god', label: 'God View' },
-        { value: 'agent', label: 'Agent View' },
-    ], 'god');
-    populateSelect(el.labViewSelect, [
-        { value: 'god', label: 'God View' },
-        { value: 'agent', label: 'Agent View' },
-    ], 'god');
-    populateSelect(el.labScenarioSelect, [
-        { value: 'bomb_escape', label: 'Bomb Escape' },
-        { value: 'item_hunt', label: 'Item Hunt' },
-        { value: 'enemy_pressure', label: 'Enemy Pressure' },
-        { value: 'open_field', label: 'Open Field' },
-    ], 'bomb_escape');
-    updateLabFilters();
+function startPlaygroundGame() {
+    if (state.gameStatus === 'game_over') return;
+    
+    state.gameStatus = 'running';
+    el.pgStart.disabled = true;
+    el.pgPause.disabled = false;
+    el.pgPause.textContent = 'Pause';
+    el.pgStep.disabled = true;
+    
+    state.intervalId = setInterval(() => {
+        stepPlaygroundGame();
+    }, state.speedMs);
 }
 
-async function bootstrap() {
-    setConnection('loading', 'Connecting', 'Bootstrapping the dashboard');
-    initStaticControls();
-    setupEvents();
-    await loadBackendAgents();
-    populateAgentSelects();
-    populateLabAlgorithmSelect();
-    syncUIFromState();
-    updateAgentCountUI();
-    await initGame();
-    renderLogs();
-    renderExperimentScaffold();
+function pausePlaygroundGame() {
+    state.gameStatus = 'paused';
+    el.pgStart.disabled = false;
+    el.pgStart.textContent = 'Resume';
+    el.pgPause.disabled = true;
+    
+    if (state.intervalId) {
+        clearInterval(state.intervalId);
+        state.intervalId = null;
+    }
 }
 
-bootstrap();
+async function stepPlaygroundGame(userAction = 0) {
+    if (!state.game || state.gameStatus === 'game_over') return;
+    
+    const actions = {};
+    // If player_1 is manual, inject user keys action
+    if (el.pgAlgoP1.value === 'manual') {
+        actions['player_1'] = userAction;
+    }
+    
+    const t0 = performance.now();
+    try {
+        const res = await fetch(`${API_URL}/api/step`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ actions })
+        });
+        
+        if (res.ok) {
+            const data = await res.json();
+            state.game = data.state;
+            
+            const t1 = performance.now();
+            const latency = Math.round(t1 - t0);
+            el.pgFps.textContent = Math.min(60, Math.round(1000 / Math.max(1, latency)));
+            
+            updateTelemetry(state.game);
+            renderGameBoard(state.game, 'game-playground-board', 'player_1');
+            
+            el.pgTick.textContent = state.game.step_count;
+            el.pgTime.textContent = `${300 - state.game.step_count}s`;
+            
+            if (data.status === 'game_over' || !data.game_continue) {
+                gamePlaygroundOver();
+            }
+        }
+    } catch (e) {
+        console.error("Step execution failed", e);
+        pausePlaygroundGame();
+    }
+}
+
+function gamePlaygroundOver() {
+    state.gameStatus = 'game_over';
+    el.pgStart.disabled = true;
+    el.pgPause.disabled = true;
+    el.pgStep.disabled = true;
+    
+    if (state.intervalId) {
+        clearInterval(state.intervalId);
+        state.intervalId = null;
+    }
+    
+    alert("Match Completed! Replay and metrics saved directly to SQLite.");
+}
+
+function updateTelemetry(game) {
+    if (!game || !game.agents) return;
+    
+    for (let i = 1; i <= state.agentCount; i++) {
+        const aid = `player_${i}`;
+        const agent = game.agents[aid];
+        if (!agent) continue;
+        
+        // Calculate a score
+        const score = state.agentConfigs[aid] === 'manual' ? 0 : 
+            (agent.is_alive ? 500 : 0) + agent.bomb_range * 100 + agent.max_bombs * 50;
+            
+        document.getElementById(`tel-p${i}-hp`).textContent = `${agent.lives} / ${score}`;
+        document.getElementById(`tel-p${i}-stats`).textContent = `${agent.bombs_left}/${agent.max_bombs} | range ${agent.bomb_range}`;
+        document.getElementById(`tel-p${i}-pos`).textContent = `(${agent.x}, ${agent.y})`;
+        
+        const stateEl = document.getElementById(`tel-p${i}-state`);
+        stateEl.textContent = agent.is_alive ? 'Alive' : 'Eliminated';
+        stateEl.style.color = agent.is_alive ? 'var(--accent-green)' : 'var(--accent-pink)';
+    }
+}
+
+// ----------------------------------------------------
+// BOARD RENDERING COMMON ENGINE
+// ----------------------------------------------------
+function drawEmptyBoard(containerId, w, h) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    container.innerHTML = '';
+    container.style.gridTemplateColumns = `repeat(${w}, 34px)`;
+    container.style.gridTemplateRows = `repeat(${h}, 34px)`;
+    
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const cell = document.createElement('div');
+            cell.className = `board-cell ${(x + y) % 2 === 0 ? 'cell-ground-even' : 'cell-ground-odd'}`;
+            container.appendChild(cell);
+        }
+    }
+}
+
+function renderGameBoard(game, containerId, focusAgentId = 'player_1', path = []) {
+    const container = document.getElementById(containerId);
+    if (!game || !container) return;
+    
+    const w = game.width;
+    const h = game.height;
+    
+    container.innerHTML = '';
+    
+    // Adaptive cell size on smaller laptops
+    const maxCellSize = containerId === 'lab-small-board' ? 32 : 34;
+    container.style.gridTemplateColumns = `repeat(${w}, ${maxCellSize}px)`;
+    container.style.gridTemplateRows = `repeat(${h}, ${maxCellSize}px)`;
+    
+    // Calculate visible cells for Fog of War
+    const visibleSet = new Set();
+    const hasFow = state.fowEnabled && containerId === 'game-playground-board';
+    
+    if (hasFow && game.agents[focusAgentId] && game.agents[focusAgentId].is_alive) {
+        const focusAgent = game.agents[focusAgentId];
+        // Chebyshev distance radius
+        for (let dy = -state.fowRadius; dy <= state.fowRadius; dy++) {
+            for (let dx = -state.fowRadius; dx <= state.fowRadius; dx++) {
+                const tx = focusAgent.x + dx;
+                const ty = focusAgent.y + dy;
+                if (tx >= 0 && tx < w && ty >= 0 && ty < h) {
+                    visibleSet.add(`${tx},${ty}`);
+                }
+            }
+        }
+    } else {
+        // all visible
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                visibleSet.add(`${x},${y}`);
+            }
+        }
+    }
+    
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const cell = document.createElement('div');
+            cell.style.width = `${maxCellSize}px`;
+            cell.style.height = `${maxCellSize}px`;
+            
+            const cellKey = `${x},${y}`;
+            
+            if (!visibleSet.has(cellKey)) {
+                cell.className = 'board-cell cell-fog';
+                container.appendChild(cell);
+                continue;
+            }
+            
+            const tile = game.grid[y][x];
+            let cellClass = `board-cell ${(x + y) % 2 === 0 ? 'cell-ground-even' : 'cell-ground-odd'}`;
+            
+            if (tile === 1) cellClass += ' cell-wall';
+            else if (tile === 2) cellClass += ' cell-brick';
+            else if (tile === 3) cellClass += ' cell-bomb';
+            else if (tile === 4) {
+                const isOrigin = game.explosion_origins && game.explosion_origins.some(coord => coord[0] === x && coord[1] === y);
+                if (isOrigin) {
+                    cellClass += ' cell-explosion-center';
+                } else {
+                    const isUpExplosion = (y > 0 && game.grid[y-1][x] === 4);
+                    const isDownExplosion = (y < h - 1 && game.grid[y+1][x] === 4);
+                    if (isUpExplosion || isDownExplosion) {
+                        cellClass += ' cell-explosion-vertical';
+                    } else {
+                        cellClass += ' cell-explosion-horizontal';
+                    }
+                }
+            }
+            else if (tile === 5) cellClass += ' cell-item-radius';
+            else if (tile === 6) cellClass += ' cell-item-capacity';
+            
+            // Highlight path overlay if specified
+            if (path && path.some(coord => coord[0] === x && coord[1] === y)) {
+                cellClass += ' cell-path';
+            }
+            
+            cell.className = cellClass;
+            
+            // Check for agents standing on this cell
+            if (game.agents) {
+                for (const aid in game.agents) {
+                    const agent = game.agents[aid];
+                    if (agent.x === x && agent.y === y) {
+                        const avatar = document.createElement('div');
+                        avatar.className = `cell-agent agent-${aid === 'player_1' ? 'p1' : aid === 'player_2' ? 'p2' : aid === 'player_3' ? 'p3' : 'p4'}`;
+                        
+                        const dir = (agent.direction || 'down').toLowerCase();
+                        avatar.classList.add(`dir-${dir}`);
+                        
+                        if (!agent.is_alive) {
+                            avatar.classList.add('agent-dead');
+                        }
+                        avatar.textContent = aid === 'player_1' ? '1' : aid === 'player_2' ? '2' : aid === 'player_3' ? '3' : '4';
+                        cell.appendChild(avatar);
+                    }
+                }
+            }
+            
+            container.appendChild(cell);
+        }
+    }
+}
+
+// ----------------------------------------------------
+// MODULE 2: TACTICAL SCENARIO LABORATORY
+// ----------------------------------------------------
+function setupLabHandlers() {
+    el.scenarioItems.forEach(item => {
+        item.addEventListener('click', () => {
+            el.scenarioItems.forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
+            
+            state.labScenario = item.getAttribute('data-scenario');
+            initLabScenario();
+        });
+    });
+    
+    el.labAlgorithm.addEventListener('change', (e) => {
+        state.labAlgo = e.target.value;
+        initLabScenario();
+    });
+    
+    el.labPlay.addEventListener('click', toggleLabPlayback);
+    el.labPrev.addEventListener('click', prevLabTick);
+    el.labNext.addEventListener('click', nextLabTick);
+    el.labReplay.addEventListener('click', initLabScenario);
+    el.labOverlayChk.addEventListener('change', (e) => {
+        state.labShowOverlay = e.target.checked;
+        renderLabSmallBoard();
+    });
+    
+    // Initial load
+    initLabScenario();
+}
+
+async function initLabScenario() {
+    if (state.labIntervalId) {
+        clearInterval(state.labIntervalId);
+        state.labIntervalId = null;
+    }
+    state.labPlaying = false;
+    el.labPlay.textContent = 'Play';
+    
+    state.labTick = 0;
+    state.labHistory = [];
+    
+    if (!state.isConnected) {
+        drawEmptyBoard('lab-small-board', 7, 7);
+        el.labDecisionLog.innerHTML = 'Server disconnected. Run backend to demonstrate reasoning logic.';
+        return;
+    }
+    
+    try {
+        const configs = {
+            player_1: state.labAlgo, // Force player_1 to run the selected algorithm in Sandbox
+            player_2: 'random',
+            player_3: 'random',
+            player_4: 'random'
+        };
+        
+        const res = await fetch(`${API_URL}/api/init`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                agent_configs: configs,
+                scenario: state.labScenario
+            })
+        });
+        
+        if (res.ok) {
+            const data = await res.json();
+            // Save initial state into history
+            state.labHistory.push(data.state);
+            renderLabSmallBoard();
+            updateLabDecisionLog(data.state);
+        }
+    } catch (e) {
+        console.error("Failed to load scenario", e);
+    }
+}
+
+function renderLabSmallBoard() {
+    const curState = state.labHistory[state.labTick];
+    if (!curState) return;
+    
+    el.labTickVal.textContent = state.labTick;
+    
+    // Get search path from current agent trace if available
+    let pathCoords = [];
+    const trace = curState.traces?.['player_1'];
+    if (state.labShowOverlay && trace && trace.path) {
+        // Trace path is a sequence of actions like ['RIGHT', 'UP'].
+        // Let's compute coordinates based on actions starting from player_1's current position!
+        const px = curState.agents['player_1']?.x;
+        const py = curState.agents['player_1']?.y;
+        if (px !== undefined && py !== undefined) {
+            let cx = px;
+            let cy = py;
+            pathCoords.push([cx, cy]);
+            
+            trace.path.forEach(act => {
+                if (act === 'LEFT') cx -= 1;
+                if (act === 'RIGHT') cx += 1;
+                if (act === 'UP') cy -= 1;
+                if (act === 'DOWN') cy += 1;
+                pathCoords.push([cx, cy]);
+            });
+        }
+    }
+    
+    renderGameBoard(curState, 'lab-small-board', 'player_1', pathCoords);
+}
+
+function updateLabDecisionLog(curState) {
+    if (!curState) return;
+    
+    const trace = curState.traces?.['player_1'];
+    const logBox = el.labDecisionLog;
+    logBox.innerHTML = '';
+    
+    if (!trace) {
+        logBox.innerHTML = '<div class="log-line">No trace telemetry collected.</div>';
+        return;
+    }
+    
+    const h1 = document.createElement('div');
+    h1.className = 'log-header';
+    h1.innerHTML = `TICK ${state.labTick} | MODEL: <span class="log-highlight-cyan">${trace.algorithm.toUpperCase()}</span>`;
+    logBox.appendChild(h1);
+    
+    if (trace.reasoning && Array.isArray(trace.reasoning)) {
+        trace.reasoning.forEach(line => {
+            const row = document.createElement('div');
+            row.className = 'log-line';
+            
+            // Format highlights
+            let formatted = line
+                .replace(/(astar|bfs|dfs|minimax|expectimax|greedy|hill climbing|simulated annealing)/gi, '<span class="log-highlight-cyan">$1</span>')
+                .replace(/(expanded|evaluated|temperature|acceptance|worse)/gi, '<span class="log-highlight-yellow">$1</span>')
+                .replace(/(chosen|choice|optimal|best)/gi, '<span class="log-highlight-green">$1</span>')
+                .replace(/(died|danger|suicide|explosion)/gi, '<span class="log-highlight-pink">$1</span>');
+                
+            row.innerHTML = formatted;
+            logBox.appendChild(row);
+        });
+    }
+    
+    // For minimax/expectimax evaluations list
+    if (trace.evaluations) {
+        const title = document.createElement('div');
+        title.className = 'log-line log-highlight-yellow';
+        title.style.marginTop = '12px';
+        title.textContent = 'Evaluations breakdown:';
+        logBox.appendChild(title);
+        
+        for (const action in trace.evaluations) {
+            const score = trace.evaluations[action];
+            const item = document.createElement('div');
+            item.className = 'log-line';
+            item.style.paddingLeft = '14px';
+            item.innerHTML = `Action <span class="log-highlight-cyan">${action}</span>: expected utility = <span class="log-highlight-green">${score.toFixed(1)}</span>`;
+            logBox.appendChild(item);
+        }
+    }
+}
+
+async function nextLabTick() {
+    // Check if we already computed the next state in our history
+    if (state.labTick + 1 < state.labHistory.length) {
+        state.labTick += 1;
+        renderLabSmallBoard();
+        updateLabDecisionLog(state.labHistory[state.labTick]);
+        return;
+    }
+    
+    // Otherwise, query a step forward from backend
+    if (!state.isConnected) return;
+    
+    try {
+        const res = await fetch(`${API_URL}/api/step`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ actions: {} })
+        });
+        
+        if (res.ok) {
+            const data = await res.json();
+            state.labHistory.push(data.state);
+            state.labTick += 1;
+            renderLabSmallBoard();
+            updateLabDecisionLog(data.state);
+            
+            if (data.status === 'game_over' || !data.game_continue) {
+                if (state.labIntervalId) {
+                    clearInterval(state.labIntervalId);
+                    state.labIntervalId = null;
+                }
+                state.labPlaying = false;
+                el.labPlay.textContent = 'Play';
+                alert("Scenario reached resolution terminal state.");
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function prevLabTick() {
+    if (state.labTick > 0) {
+        state.labTick -= 1;
+        renderLabSmallBoard();
+        updateLabDecisionLog(state.labHistory[state.labTick]);
+    }
+}
+
+function toggleLabPlayback() {
+    state.labPlaying = !state.labPlaying;
+    if (state.labPlaying) {
+        el.labPlay.textContent = 'Pause';
+        state.labIntervalId = setInterval(() => {
+            nextLabTick();
+        }, 600);
+    } else {
+        el.labPlay.textContent = 'Play';
+        if (state.labIntervalId) {
+            clearInterval(state.labIntervalId);
+            state.labIntervalId = null;
+        }
+    }
+}
+
+// ----------------------------------------------------
+// MODULE 3: RESEARCH ANALYTICS DASHBOARD
+// ----------------------------------------------------
+function setupAnalyticsHandlers() {
+    // Replay controls
+    el.repPlay.addEventListener('click', toggleReplayPlayback);
+    el.repPrev.addEventListener('click', prevReplayTick);
+    el.repNext.addEventListener('click', nextReplayTick);
+    el.repScrub.addEventListener('input', scrubReplayTick);
+    
+    // Exports
+    el.exportCsvBtn.addEventListener('click', exportMatchCSV);
+    el.exportJsonBtn.addEventListener('click', exportMatchJSON);
+    el.exportPngBtn.addEventListener('click', exportChartsPNG);
+    
+    // Heatmap / Normal radio buttons
+    document.querySelectorAll('input[name="overlay-type"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            state.replayOverlayMode = e.target.value;
+            renderReplayBoard();
+        });
+    });
+
+    // CSV vs SQLite Toggle
+    if (el.btnAnalyticsCsv && el.btnAnalyticsDb) {
+        el.btnAnalyticsCsv.addEventListener('click', () => {
+            el.btnAnalyticsCsv.classList.add('active');
+            el.btnAnalyticsDb.classList.remove('active');
+            state.analyticsSource = 'csv';
+            loadAnalyticsData();
+        });
+        el.btnAnalyticsDb.addEventListener('click', () => {
+            el.btnAnalyticsDb.classList.add('active');
+            el.btnAnalyticsCsv.classList.remove('active');
+            state.analyticsSource = 'db';
+            loadAnalyticsData();
+        });
+    }
+}
+
+async function loadAnalyticsData() {
+    if (!state.isConnected) return;
+    
+    if (state.analyticsSource === 'csv') {
+        await loadCSVAnalyticsData();
+    } else {
+        await loadDBAnalyticsData();
+    }
+}
+
+async function loadDBAnalyticsData() {
+    try {
+        // Clear potential CSV static rendering from replay board
+        el.replayBoard.innerHTML = '';
+        
+        // 1. Fetch overview numbers
+        const resOver = await fetch(`${API_URL}/api/analytics/overview`);
+        if (resOver.ok) {
+            const data = await resOver.json();
+            state.analyticsOverview = data;
+            
+            el.cardTotalMatches.textContent = data.total_matches;
+            el.cardAvgLatency.textContent = `${data.avg_latency_ms.toFixed(1)} ms`;
+            el.cardAvgScore.textContent = Math.round(data.avg_score);
+            el.cardResources.textContent = `${data.avg_cpu_usage.toFixed(1)}% / ${data.avg_memory_usage.toFixed(1)}MB`;
+        }
+        
+        // 2. Fetch compare stats
+        const resComp = await fetch(`${API_URL}/api/analytics/compare`);
+        if (resComp.ok) {
+            const data = await resComp.json();
+            state.analyticsCompare = data.compare;
+            
+            // Redraw charts
+            drawPerformanceCharts(data.compare);
+        }
+        
+        // 3. Fetch matches history list for Replay selector
+        const resMatches = await fetch(`${API_URL}/api/matches`);
+        if (resMatches.ok) {
+            const data = await resMatches.json();
+            state.matches = data.matches;
+            renderMatchesList(data.matches);
+            
+            // Auto-load first match if exists
+            if (data.matches.length > 0) {
+                loadReplayMatch(data.matches[0].id);
+            }
+        }
+    } catch (e) {
+        console.error("Failed to load DB analytics", e);
+    }
+}
+
+async function loadCSVAnalyticsData() {
+    try {
+        // 1. Fetch comparison and summary data from folder
+        const resComp = await fetch(`${API_URL}/api/csv/comparison`);
+        const resFowSum = await fetch(`${API_URL}/api/csv/fow_summary`);
+        const resNormSum = await fetch(`${API_URL}/api/csv/normal_summary`);
+        
+        if (!resComp.ok || !resFowSum.ok || !resNormSum.ok) return;
+        
+        const compData = await resComp.json();
+        const fowSum = await resFowSum.json();
+        const normSum = await resNormSum.json();
+        
+        // 2. Populate overview cards
+        const totalMatches = fowSum[0] ? fowSum[0].matches_played * 2 : 440;
+        el.cardTotalMatches.textContent = totalMatches;
+        
+        let totalLat = 0;
+        fowSum.forEach(d => totalLat += d.average_latency_ms);
+        normSum.forEach(d => totalLat += d.average_latency_ms);
+        const avgLat = totalLat / (fowSum.length + normSum.length);
+        el.cardAvgLatency.textContent = `${avgLat.toFixed(1)} ms`;
+        
+        let totalElo = 0;
+        fowSum.forEach(d => totalElo += d.final_elo);
+        normSum.forEach(d => totalElo += d.final_elo);
+        const avgElo = totalElo / (fowSum.length + normSum.length);
+        el.cardAvgScore.textContent = Math.round(avgElo);
+        
+        el.cardResources.textContent = "CSV File Logs";
+        
+        // 3. Draw CSV Charts
+        drawCSVCharts(compData, normSum, fowSum);
+        
+        // 4. Fetch tournament matches (displaying normal mode as default tournament list)
+        const resMatches = await fetch(`${API_URL}/api/csv/normal_tournament`);
+        if (resMatches.ok) {
+            const matchesData = await resMatches.json();
+            
+            // Group rows by match_id to form unique matches
+            const matchGroups = {};
+            matchesData.forEach(row => {
+                if (!matchGroups[row.match_id]) {
+                    matchGroups[row.match_id] = {
+                        id: row.match_id,
+                        map_preset: "Tournament Mode",
+                        steps: row.steps,
+                        seed: row.seed,
+                        winner_name: row.winner_id,
+                        created_at: new Date().toISOString(),
+                        agents: []
+                    };
+                }
+                matchGroups[row.match_id].agents.push(row);
+            });
+            
+            const matchesList = Object.values(matchGroups);
+            state.csvMatches = matchesList;
+            state.matches = matchesList; // fallback
+            renderCSVMatchesList(matchesList);
+            
+            if (matchesList.length > 0) {
+                loadCSVReplayMatch(matchesList[0].id);
+            }
+        }
+    } catch (e) {
+        console.error("Failed to load CSV analytics", e);
+    }
+}
+
+function renderCSVMatchesList(matches) {
+    const list = el.replayMatchesList;
+    list.innerHTML = '';
+    
+    matches.forEach((match) => {
+        const item = document.createElement('div');
+        item.className = 'scenario-item';
+        if (state.selectedReplayMatch === match.id) {
+            item.classList.add('active');
+        }
+        
+        item.innerHTML = `
+            <div class="scenario-name">Tournament Match: ${match.id.toUpperCase()}</div>
+            <div class="scenario-desc">Steps: ${match.steps} | Seed: ${match.seed}</div>
+            <div class="scenario-desc" style="color:var(--text-muted); margin-top:2px;">Winner: ${match.winner_name}</div>
+        `;
+        
+        item.addEventListener('click', () => {
+            document.querySelectorAll('#replay-matches-list .scenario-item').forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
+            loadCSVReplayMatch(match.id);
+        });
+        
+        list.appendChild(item);
+    });
+}
+
+function loadCSVReplayMatch(matchId) {
+    state.selectedReplayMatch = matchId;
+    const match = state.csvMatches.find(m => m.id === matchId);
+    if (!match) return;
+    
+    el.repMatchDisplay.textContent = `Match ID: ${match.id} (Seed ${match.seed})`;
+    el.repTickDisplay.textContent = `CSV Static Match`;
+    el.repScrub.max = 0;
+    el.repScrub.value = 0;
+    
+    el.replayBoard.innerHTML = `
+        <div style="width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box; overflow-y:auto; background: rgba(6, 11, 19, 0.4); border-radius: 8px;">
+            <h3 style="margin-bottom:16px; color:var(--primary); font-family:system-ui; font-size:1.1rem; letter-spacing:0.05em;">TOURNAMENT MATCH RESULTS</h3>
+            <table style="width:100%; border-collapse:collapse; text-align:left; font-size:0.8rem; color:var(--text-primary);">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--border-color); color:var(--text-secondary);">
+                        <th style="padding:10px 4px;">Agent ID</th>
+                        <th style="padding:10px 4px;">Rank</th>
+                        <th style="padding:10px 4px;">Survival Steps</th>
+                        <th style="padding:10px 4px;">Kills</th>
+                        <th style="padding:10px 4px;">Suicides</th>
+                        <th style="padding:10px 4px;">Bricks</th>
+                        <th style="padding:10px 4px;">Items</th>
+                        <th style="padding:10px 4px;">Avg Latency</th>
+                        <th style="padding:10px 4px;">Elo After</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${match.agents.map(a => `
+                        <tr style="border-bottom: 1px solid var(--border-color); ${a.agent_id === match.winner_name ? 'background-color:rgba(16,185,129,0.08); color:var(--accent-green);' : ''}">
+                            <td style="padding:10px 4px; font-weight:700;">${a.agent_id}</td>
+                            <td style="padding:10px 4px;">${a.rank}</td>
+                            <td style="padding:10px 4px;">${a.survival_steps}</td>
+                            <td style="padding:10px 4px;">${a.kills}</td>
+                            <td style="padding:10px 4px;">${a.suicides}</td>
+                            <td style="padding:10px 4px;">${a.bricks_destroyed}</td>
+                            <td style="padding:10px 4px;">${a.items_collected}</td>
+                            <td style="padding:10px 4px;">${a.avg_latency_ms.toFixed(2)}ms</td>
+                            <td style="padding:10px 4px; font-weight:600;">${a.elo_after_match.toFixed(1)}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+            <div style="margin-top:24px; color:var(--text-muted); font-size:0.75rem; text-align:center; max-width:80%;">
+                ⚠️ This is a historical tournament match record from the CSV folder. <br>
+                Replay frame-by-frame scrubbing is only available in <strong>Live Play Benchmarks (SQLite)</strong> mode.
+            </div>
+        </div>
+    `;
+    
+    el.repEvents.innerHTML = `
+        <div class="log-line log-highlight-green">Match winner: ${match.winner_name}</div>
+        <div class="log-line">Match Seed: ${match.seed}</div>
+        <div class="log-line">Total steps: ${match.steps}</div>
+        <div class="log-line" style="margin-top:10px; color:var(--text-muted);">This match was played in the original tournament environment.</div>
+    `;
+}
+
+function drawCSVCharts(comparisonData, normalSummary, fowSummary) {
+    const algos = comparisonData.map(d => d.agent_id);
+    
+    if (chartWinrateInstance) chartWinrateInstance.destroy();
+    const ctxWin = document.getElementById('chart-winrate').getContext('2d');
+    chartWinrateInstance = new Chart(ctxWin, {
+        type: 'bar',
+        data: {
+            labels: algos,
+            datasets: [
+                {
+                    label: 'Normal Mode (%)',
+                    data: comparisonData.map(d => d.win_rate_normal * 100),
+                    backgroundColor: 'rgba(6, 182, 212, 0.65)',
+                    borderColor: '#06b6d4',
+                    borderWidth: 2,
+                    borderRadius: 4
+                },
+                {
+                    label: 'Fog of War (%)',
+                    data: comparisonData.map(d => d.win_rate_fow * 100),
+                    backgroundColor: 'rgba(236, 72, 153, 0.65)',
+                    borderColor: '#ec4899',
+                    borderWidth: 2,
+                    borderRadius: 4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+            },
+            plugins: {
+                legend: { labels: { color: '#e2e8f0' } }
+            }
+        }
+    });
+
+    if (chartNodesInstance) chartNodesInstance.destroy();
+    const ctxNodes = document.getElementById('chart-nodes').getContext('2d');
+    chartNodesInstance = new Chart(ctxNodes, {
+        type: 'bar',
+        data: {
+            labels: algos,
+            datasets: [
+                {
+                    label: 'Normal ELO',
+                    data: comparisonData.map(d => d.final_elo_normal),
+                    backgroundColor: 'rgba(139, 92, 246, 0.65)',
+                    borderColor: '#8b5cf6',
+                    borderWidth: 2,
+                    borderRadius: 4
+                },
+                {
+                    label: 'Fog of War ELO',
+                    data: comparisonData.map(d => d.final_elo_fow),
+                    backgroundColor: 'rgba(245, 158, 11, 0.65)',
+                    borderColor: '#f59e0b',
+                    borderWidth: 2,
+                    borderRadius: 4
+                }
+            ]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                y: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+            },
+            plugins: {
+                legend: { labels: { color: '#e2e8f0' } }
+            }
+        }
+    });
+
+    if (chartHorizonInstance) chartHorizonInstance.destroy();
+    const ctxHor = document.getElementById('chart-horizon').getContext('2d');
+    
+    const normalPoints = normalSummary.map(d => ({
+        x: d.final_elo,
+        y: d.average_latency_ms,
+        label: `${d.agent_id} (Normal)`
+    }));
+    const fowPoints = fowSummary.map(d => ({
+        x: d.final_elo,
+        y: d.average_latency_ms,
+        label: `${d.agent_id} (FOW)`
+    }));
+
+    chartHorizonInstance = new Chart(ctxHor, {
+        type: 'scatter',
+        data: {
+            datasets: [
+                {
+                    label: 'Normal Mode',
+                    data: normalPoints,
+                    backgroundColor: '#06b6d4',
+                    pointRadius: 6
+                },
+                {
+                    label: 'Fog of War',
+                    data: fowPoints,
+                    backgroundColor: '#ec4899',
+                    pointRadius: 6
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { title: { display: true, text: 'Elo Rating', color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                y: { title: { display: true, text: 'Latency (ms)', color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx) {
+                            return `${ctx.raw.label}: ELO=${ctx.raw.x.toFixed(1)}, Latency=${ctx.raw.y.toFixed(2)} ms`;
+                        }
+                    }
+                },
+                legend: { labels: { color: '#e2e8f0' } }
+            }
+        }
+    });
+
+    if (chartTacticalInstance) chartTacticalInstance.destroy();
+    const ctxTac = document.getElementById('chart-tactical').getContext('2d');
+    chartTacticalInstance = new Chart(ctxTac, {
+        type: 'bar',
+        data: {
+            labels: algos,
+            datasets: [
+                {
+                    label: 'Avg Bricks Destroyed',
+                    data: normalSummary.map(d => d.bricks_destroyed),
+                    backgroundColor: 'rgba(16, 185, 129, 0.65)',
+                    borderColor: '#10b981',
+                    borderWidth: 2,
+                    borderRadius: 4
+                },
+                {
+                    label: 'Avg Items Collected',
+                    data: normalSummary.map(d => d.items_collected),
+                    backgroundColor: 'rgba(245, 158, 11, 0.65)',
+                    borderColor: '#f59e0b',
+                    borderWidth: 2,
+                    borderRadius: 4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+            },
+            plugins: {
+                legend: { labels: { color: '#e2e8f0' } }
+            }
+        }
+    });
+}
+
+function renderMatchesList(matches) {
+    const list = el.replayMatchesList;
+    list.innerHTML = '';
+    
+    matches.forEach((match, index) => {
+        const item = document.createElement('div');
+        item.className = 'scenario-item';
+        if (state.selectedReplayMatch === match.id) {
+            item.classList.add('active');
+        }
+        
+        const date = new Date(match.created_at).toLocaleDateString();
+        const time = new Date(match.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        
+        item.innerHTML = `
+            <div class="scenario-name">Preset: ${match.map_preset.toUpperCase()}</div>
+            <div class="scenario-desc">Steps: ${match.steps} | Seed: ${match.seed}</div>
+            <div class="scenario-desc" style="color:var(--text-muted); margin-top:2px;">Winner: ${match.winner_name} | ${date} ${time}</div>
+        `;
+        
+        item.addEventListener('click', () => {
+            document.querySelectorAll('#replay-matches-list .scenario-item').forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
+            loadReplayMatch(match.id);
+        });
+        
+        list.appendChild(item);
+    });
+}
+
+async function loadReplayMatch(matchId) {
+    if (state.replayIntervalId) {
+        clearInterval(state.replayIntervalId);
+        state.replayIntervalId = null;
+    }
+    state.replayPlaying = false;
+    el.repPlay.textContent = 'Play';
+    
+    state.selectedReplayMatch = matchId;
+    
+    try {
+        const res = await fetch(`${API_URL}/api/matches/${matchId}/replay`);
+        if (res.ok) {
+            const data = await res.json();
+            state.replaySteps = data.replay_steps;
+            state.replayTick = 0;
+            
+            // Configure scrub slider
+            el.repScrub.max = state.replaySteps.length - 1;
+            el.repScrub.value = 0;
+            
+            const matchInfo = state.matches.find(m => m.id === matchId);
+            el.repMatchDisplay.textContent = matchInfo ? `${matchInfo.map_preset.toUpperCase()} (Seed ${matchInfo.seed})` : matchId.substring(0, 8);
+            el.repTickDisplay.textContent = `0/${state.replaySteps.length - 1}`;
+            
+            renderReplayBoard();
+            renderReplayEvents();
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function renderReplayBoard() {
+    const curStep = state.replaySteps[state.replayTick];
+    if (!curStep) return;
+    
+    el.repTickDisplay.textContent = `${state.replayTick}/${state.replaySteps.length - 1}`;
+    el.repScrub.value = state.replayTick;
+    
+    if (state.replayOverlayMode === 'heatmap') {
+        // Calculate position frequencies of ALL agents up to current tick
+        const frequencies = {};
+        const width = curStep.grid[0].length;
+        const height = curStep.grid.length;
+        
+        let maxFreq = 1;
+        for (let i = 0; i <= state.replayTick; i++) {
+            const step = state.replaySteps[i];
+            for (const aid in step.agents) {
+                const agent = step.agents[aid];
+                if (agent.is_alive) {
+                    const key = `${agent.x},${agent.y}`;
+                    frequencies[key] = (frequencies[key] || 0) + 1;
+                    if (frequencies[key] > maxFreq) {
+                        maxFreq = frequencies[key];
+                    }
+                }
+            }
+        }
+        
+        // Render board but overlay heatmap background colors
+        const container = el.replayBoard;
+        container.innerHTML = '';
+        container.style.gridTemplateColumns = `repeat(${width}, 34px)`;
+        container.style.gridTemplateRows = `repeat(${height}, 34px)`;
+        
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const cell = document.createElement('div');
+                cell.style.width = '34px';
+                cell.style.height = '34px';
+                
+                const tile = curStep.grid[y][x];
+                let cellClass = `board-cell ${(x + y) % 2 === 0 ? 'cell-ground-even' : 'cell-ground-odd'}`;
+                if (tile === 1) cellClass += ' cell-wall';
+                else if (tile === 2) cellClass += ' cell-brick';
+                
+                cell.className = cellClass;
+                
+                // If it's a walk path, overlay HSL heat color
+                const key = `${x},${y}`;
+                if (frequencies[key] && tile !== 1 && tile !== 2) {
+                    const density = frequencies[key] / maxFreq;
+                    cell.style.backgroundColor = `rgba(244, 63, 94, ${0.15 + density * 0.7})`;
+                    cell.style.boxShadow = `inset 0 0 8px rgba(244, 63, 94, ${density})`;
+                }
+                
+                container.appendChild(cell);
+            }
+        }
+    } else {
+        renderGameBoard(curStep, 'replay-board');
+    }
+}
+
+function renderReplayEvents() {
+    const events = [];
+    const stepCount = state.replaySteps.length;
+    
+    // Scan steps to find events
+    let activeBombs = new Set();
+    
+    state.replaySteps.forEach((step, idx) => {
+        // Look for new bomb placements
+        step.bombs.forEach(b => {
+            const key = `${b.x},${b.y}`;
+            if (!activeBombs.has(key)) {
+                activeBombs.add(key);
+                events.push(`[Tick ${idx}] Agent ${b.owner_id.toUpperCase()} placed a bomb at (${b.x}, ${b.y})`);
+            }
+        });
+        
+        // Look for dead agents
+        for (const aid in step.agents) {
+            const agent = step.agents[aid];
+            const prevAgent = idx > 0 ? state.replaySteps[idx - 1].agents[aid] : null;
+            if (prevAgent && prevAgent.is_alive && !agent.is_alive) {
+                events.push(`[Tick ${idx}] 💀 Agent ${aid.toUpperCase()} was eliminated!`);
+            }
+        }
+    });
+    
+    const eventsBox = el.repEvents;
+    eventsBox.innerHTML = '';
+    
+    if (events.length === 0) {
+        eventsBox.innerHTML = '<div>No major events detected during this run.</div>';
+        return;
+    }
+    
+    events.forEach(ev => {
+        const item = document.createElement('div');
+        item.style.marginBottom = '6px';
+        item.textContent = ev;
+        eventsBox.appendChild(item);
+    });
+}
+
+function nextReplayTick() {
+    if (state.replayTick + 1 < state.replaySteps.length) {
+        state.replayTick += 1;
+        renderReplayBoard();
+    } else {
+        pauseReplayPlayback();
+    }
+}
+
+function prevReplayTick() {
+    if (state.replayTick > 0) {
+        state.replayTick -= 1;
+        renderReplayBoard();
+    }
+}
+
+function scrubReplayTick(e) {
+    state.replayTick = parseInt(e.target.value);
+    renderReplayBoard();
+}
+
+function toggleReplayPlayback() {
+    state.replayPlaying = !state.replayPlaying;
+    if (state.replayPlaying) {
+        el.repPlay.textContent = 'Pause';
+        if (state.replayTick >= state.replaySteps.length - 1) {
+            state.replayTick = 0;
+        }
+        state.replayIntervalId = setInterval(nextReplayTick, 250);
+    } else {
+        pauseReplayPlayback();
+    }
+}
+
+function pauseReplayPlayback() {
+    state.replayPlaying = false;
+    el.repPlay.textContent = 'Play';
+    if (state.replayIntervalId) {
+        clearInterval(state.replayIntervalId);
+        state.replayIntervalId = null;
+    }
+}
+
+// ----------------------------------------------------
+// EXPORTING UTILITIES
+// ----------------------------------------------------
+function exportMatchCSV() {
+    if (!state.selectedReplayMatch || state.replaySteps.length === 0) return;
+    
+    const matchInfo = state.matches.find(m => m.id === state.selectedReplayMatch);
+    if (!matchInfo) return;
+    
+    let csv = 'Tick,Agent,X,Y,Lives,BombsLeft,Range,Action,Reasoning\n';
+    
+    state.replaySteps.forEach(step => {
+        for (const aid in step.agents) {
+            const agent = step.agents[aid];
+            const trace = step.traces?.[aid] || {};
+            const action = step.actions?.[aid] || 'WAIT';
+            const reasoning = trace.reasoning ? trace.reasoning.join(' | ').replace(/"/g, '""') : '';
+            
+            csv += `${step.tick},${aid},${agent.x},${agent.y},${agent.lives},${agent.bombs_left},${agent.bomb_range},"${action}","${reasoning}"\n`;
+        }
+    });
+    
+    triggerDownload(csv, `match_${state.selectedReplayMatch}_telemetry.csv`, 'text/csv');
+}
+
+function exportMatchJSON() {
+    if (state.replaySteps.length === 0) return;
+    const jsonStr = JSON.stringify(state.replaySteps, null, 2);
+    triggerDownload(jsonStr, `match_${state.selectedReplayMatch}_replay.json`, 'application/json');
+}
+
+function exportChartsPNG() {
+    const charts = [
+        { id: 'chart-winrate', name: 'winrates.png' },
+        { id: 'chart-nodes', name: 'heuristic_efficiency.png' },
+        { id: 'chart-horizon', name: 'latency_horizon.png' },
+        { id: 'chart-tactical', name: 'tactical_success_rates.png' }
+    ];
+    
+    charts.forEach(c => {
+        const canvas = document.getElementById(c.id);
+        if (canvas) {
+            const url = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.download = c.name;
+            link.href = url;
+            link.click();
+        }
+    });
+}
+
+function triggerDownload(content, filename, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
+// ----------------------------------------------------
+// CHART.JS RENDER LOGIC
+// ----------------------------------------------------
+function drawPerformanceCharts(compareData) {
+    const algos = compareData.map(d => d.algorithm.toUpperCase());
+    const winRates = compareData.map(d => d.win_rate);
+    const nodes = compareData.map(d => d.avg_nodes_expanded);
+    const latencies = compareData.map(d => d.avg_latency_ms);
+    const horizons = compareData.map(d => d.avg_planning_horizon);
+    
+    const escapeRates = compareData.map(d => d.avg_escape_success_rate);
+    const bombAcc = compareData.map(d => d.avg_bomb_accuracy);
+    
+    // 1. Win Rate Bar Chart
+    if (chartWinrateInstance) chartWinrateInstance.destroy();
+    const ctxWin = document.getElementById('chart-winrate').getContext('2d');
+    chartWinrateInstance = new Chart(ctxWin, {
+        type: 'bar',
+        data: {
+            labels: algos,
+            datasets: [{
+                label: 'Win Rate (%)',
+                data: winRates,
+                backgroundColor: 'rgba(6, 182, 212, 0.65)',
+                borderColor: '#06b6d4',
+                borderWidth: 2,
+                borderRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+
+    // 2. Nodes Expanded Horizontal Bar
+    if (chartNodesInstance) chartNodesInstance.destroy();
+    const ctxNodes = document.getElementById('chart-nodes').getContext('2d');
+    chartNodesInstance = new Chart(ctxNodes, {
+        type: 'bar',
+        data: {
+            labels: algos,
+            datasets: [{
+                label: 'Avg Nodes Expanded',
+                data: nodes,
+                backgroundColor: 'rgba(139, 92, 246, 0.65)',
+                borderColor: '#8b5cf6',
+                borderWidth: 2,
+                borderRadius: 6
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                y: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+
+    // 3. Planning Horizon Scatter / Line Chart
+    if (chartHorizonInstance) chartHorizonInstance.destroy();
+    const ctxHor = document.getElementById('chart-horizon').getContext('2d');
+    
+    // Format scatter points
+    const scatterPoints = compareData.map(d => ({
+        x: d.avg_planning_horizon,
+        y: d.avg_latency_ms,
+        label: d.algorithm.toUpperCase()
+    }));
+    
+    chartHorizonInstance = new Chart(ctxHor, {
+        type: 'scatter',
+        data: {
+            datasets: [{
+                label: 'AI Algorithms',
+                data: scatterPoints,
+                backgroundColor: '#ec4899',
+                pointRadius: 8,
+                pointHoverRadius: 10
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { 
+                    title: { display: true, text: 'Search Horizon (Steps)', color: '#94a3b8' },
+                    grid: { color: 'rgba(255,255,255,0.05)' }, 
+                    ticks: { color: '#94a3b8' } 
+                },
+                y: { 
+                    title: { display: true, text: 'Latency (ms)', color: '#94a3b8' },
+                    grid: { color: 'rgba(255,255,255,0.05)' }, 
+                    ticks: { color: '#94a3b8' } 
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx) {
+                            return `${ctx.raw.label}: Horizon=${ctx.raw.x} steps, Latency=${ctx.raw.y.toFixed(1)} ms`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // 4. Tactical Success rates comparison Grouped Bar
+    if (chartTacticalInstance) chartTacticalInstance.destroy();
+    const ctxTac = document.getElementById('chart-tactical').getContext('2d');
+    chartTacticalInstance = new Chart(ctxTac, {
+        type: 'bar',
+        data: {
+            labels: algos,
+            datasets: [
+                {
+                    label: 'Escape Success (%)',
+                    data: escapeRates,
+                    backgroundColor: 'rgba(16, 185, 129, 0.65)',
+                    borderColor: '#10b981',
+                    borderWidth: 2,
+                    borderRadius: 4
+                },
+                {
+                    label: 'Bomb Accuracy (%)',
+                    data: bombAcc,
+                    backgroundColor: 'rgba(245, 158, 11, 0.65)',
+                    borderColor: '#f59e0b',
+                    borderWidth: 2,
+                    borderRadius: 4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+            },
+            plugins: {
+                legend: { labels: { color: '#94a3b8' } }
+            }
+        }
+    });
+}

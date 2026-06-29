@@ -28,9 +28,16 @@ def greedy_search(initial_state: dict, goal_test, max_depth: int = 10, danger_mo
 
     while open_heap:
         h, _, state, path, depth = heapq.heappop(open_heap)
+        
+        import agents.search_utils as search_utils
+        if isinstance(search_utils.CURRENT_SEARCH_TRACE, dict):
+            search_utils.CURRENT_SEARCH_TRACE["nodes_expanded"] += 1
+            search_utils.CURRENT_SEARCH_TRACE["frontier_size"] = len(open_heap)
 
         # Goal Test: dừng ngay khi đạt điều kiện đầu tiên
         if goal_test(state):
+            if isinstance(search_utils.CURRENT_SEARCH_TRACE, dict):
+                search_utils.CURRENT_SEARCH_TRACE["path"] = path
             return path
 
         if depth >= max_depth:
@@ -80,4 +87,22 @@ class GreedyAgent(BaseAgent):
             info["height"],
             info.get("bomb_ranges", {})
         )
-        return hierarchical_action(self.search_fn, info)
+        action = hierarchical_action(self.search_fn, info)
+        
+        import agents.search_utils as search_utils
+        self.last_trace = {
+            "algorithm": "greedy",
+            "nodes_expanded": search_utils.CURRENT_SEARCH_TRACE.get("nodes_expanded", 0),
+            "search_depth": len(search_utils.CURRENT_SEARCH_TRACE.get("path", [])),
+            "frontier_size": search_utils.CURRENT_SEARCH_TRACE.get("frontier_size", 0),
+            "path": search_utils.CURRENT_SEARCH_TRACE.get("path", []),
+            "chosen_action": action,
+            "reasoning": [
+                "Running Greedy Best-First Search...",
+                f"Nodes expanded: {search_utils.CURRENT_SEARCH_TRACE.get('nodes_expanded', 0)}",
+                f"Frontier size: {search_utils.CURRENT_SEARCH_TRACE.get('frontier_size', 0)}",
+                f"Path found: {search_utils.CURRENT_SEARCH_TRACE.get('path', [])}",
+                f"Chosen move: {action}"
+            ]
+        }
+        return action

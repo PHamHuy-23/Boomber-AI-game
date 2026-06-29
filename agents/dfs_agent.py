@@ -20,9 +20,16 @@ def dfs(initial_state: dict, goal_test, max_depth: int = 10, danger_mode: bool =
 
     while frontier:
         state, path, depth = frontier.pop()
+        
+        import agents.search_utils as search_utils
+        if isinstance(search_utils.CURRENT_SEARCH_TRACE, dict):
+            search_utils.CURRENT_SEARCH_TRACE["nodes_expanded"] += 1
+            search_utils.CURRENT_SEARCH_TRACE["frontier_size"] = len(frontier)
 
         # Goal Test: dừng ngay khi đạt điều kiện đầu tiên
         if goal_test(state):
+            if isinstance(search_utils.CURRENT_SEARCH_TRACE, dict):
+                search_utils.CURRENT_SEARCH_TRACE["path"] = path
             return path
 
         if depth >= max_depth:
@@ -55,8 +62,9 @@ def dfs(initial_state: dict, goal_test, max_depth: int = 10, danger_mode: bool =
 class DFSAgent(BaseAgent):
     """DFSAgent sử dụng DFS trên không gian trạng thái với logic phân tầng."""
 
-    def __init__(self):
-        self.search_fn = dfs
+    def __init__(self, depth_limit: int = 10):
+        self.depth_limit = depth_limit
+        self.search_fn = lambda state, goal_test, **kwargs: dfs(state, goal_test, max_depth=self.depth_limit, danger_mode=kwargs.get("danger_mode", False))
 
     def choose_action(self, state: dict) -> str:
         info = parse_state(state)
@@ -71,4 +79,22 @@ class DFSAgent(BaseAgent):
             info["height"],
             info.get("bomb_ranges", {})
         )
-        return hierarchical_action(self.search_fn, info)
+        action = hierarchical_action(self.search_fn, info)
+        
+        import agents.search_utils as search_utils
+        self.last_trace = {
+            "algorithm": "dfs",
+            "nodes_expanded": search_utils.CURRENT_SEARCH_TRACE.get("nodes_expanded", 0),
+            "search_depth": len(search_utils.CURRENT_SEARCH_TRACE.get("path", [])),
+            "frontier_size": search_utils.CURRENT_SEARCH_TRACE.get("frontier_size", 0),
+            "path": search_utils.CURRENT_SEARCH_TRACE.get("path", []),
+            "chosen_action": action,
+            "reasoning": [
+                "Running Depth-First Search (DFS)...",
+                f"Nodes expanded: {search_utils.CURRENT_SEARCH_TRACE.get('nodes_expanded', 0)}",
+                f"Frontier size: {search_utils.CURRENT_SEARCH_TRACE.get('frontier_size', 0)}",
+                f"Path found: {search_utils.CURRENT_SEARCH_TRACE.get('path', [])}",
+                f"Chosen move: {action}"
+            ]
+        }
+        return action

@@ -121,12 +121,17 @@ class MinimaxAgent(BaseAgent):
         alpha = -float('inf') # Giá trị tốt nhất mà MAX node có thể đảm bảo
         beta = float('inf')   # Giá trị tốt nhất mà MIN node có thể đảm bảo
 
+        self.nodes_expanded = 0
+        action_scores = {}
+
         # Nút gốc của cây Minimax (MAX node)
         valid_actions = self.order_actions(valid_actions, state_info)
         for action in valid_actions:
             next_state = simulate_state(state_info, action)
             # Tính điểm số dự báo từ nút MIN phía dưới
+            self.nodes_expanded += 1
             score = self.min_value(next_state, alpha, beta, self.depth - 1)
+            action_scores[action] = score
             
             if score > best_score:
                 best_score = score
@@ -135,10 +140,24 @@ class MinimaxAgent(BaseAgent):
             # Cập nhật alpha
             alpha = max(alpha, best_score)
             
+        self.last_trace = {
+            "algorithm": "minimax",
+            "nodes_expanded": self.nodes_expanded,
+            "search_depth": self.depth,
+            "evaluations": action_scores,
+            "chosen_action": best_action,
+            "reasoning": [
+                f"Running Minimax Search (depth={self.depth})...",
+                f"Total nodes evaluated: {self.nodes_expanded}",
+                f"Candidate actions evaluated: " + ", ".join(f"{act}: {val:.1f}" for act, val in action_scores.items()),
+                f"Chosen move: {best_action} (Utility: {best_score:.1f})"
+            ]
+        }
         return best_action
 
     def max_value(self, state: dict, alpha: float, beta: float, depth: int) -> float:
         """MAX node: Đại diện cho lựa chọn tối ưu của người chơi để tối đa hóa điểm số."""
+        self.nodes_expanded += 1
         # Điều kiện dừng: đạt giới hạn độ sâu hoặc người chơi bị trúng nổ
         if depth == 0 or state["player_pos"] in state["explosions"]:
             return self.evaluate_state_adversarial(state)
@@ -160,6 +179,7 @@ class MinimaxAgent(BaseAgent):
 
     def min_value(self, state: dict, alpha: float, beta: float, depth: int) -> float:
         """MIN node: Đại diện cho hành động đối kháng của đối thủ để tối thiểu hóa điểm số của người chơi."""
+        self.nodes_expanded += 1
         if depth == 0 or state["player_pos"] in state["explosions"]:
             return self.evaluate_state_adversarial(state)
 

@@ -80,9 +80,11 @@ class HillClimbingAgent(BaseAgent):
         current_score = self.evaluate_path(current_path, info)
         
         domain = ["WAIT", "UP", "DOWN", "LEFT", "RIGHT", "BOMB"]
+        nodes_expanded = 0
+        evaluations = {}
         
         # Vòng lặp leo đồi dốc nhất (Steepest-Ascent)
-        for _ in range(self.max_steps):
+        for step in range(self.max_steps):
             best_neighbor_path = None
             best_neighbor_score = -float('inf')
             
@@ -94,10 +96,14 @@ class HillClimbingAgent(BaseAgent):
                     neighbor_path = list(current_path)
                     neighbor_path[idx] = action
                     
+                    nodes_expanded += 1
                     score = self.evaluate_path(neighbor_path, info)
                     if score > best_neighbor_score:
                         best_neighbor_score = score
                         best_neighbor_path = neighbor_path
+                        
+            # Lưu vết đánh giá cho trực quan hóa
+            evaluations[f"Step {step}"] = best_neighbor_score
             
             # Nếu láng giềng tốt nhất tốt hơn hẳn trạng thái hiện tại, leo lên
             if best_neighbor_score > current_score:
@@ -107,4 +113,20 @@ class HillClimbingAgent(BaseAgent):
                 # Đã đạt Cực trị cục bộ (Local Maximum), dừng tìm kiếm
                 break
                 
-        return current_path[0]
+        action = current_path[0]
+        self.last_trace = {
+            "algorithm": "hill_climbing",
+            "nodes_expanded": nodes_expanded,
+            "search_depth": 4, # 4-step path horizon
+            "path": current_path,
+            "chosen_action": action,
+            "evaluations": evaluations,
+            "reasoning": [
+                "Running Hill Climbing (Local Search)...",
+                f"Total candidate paths evaluated: {nodes_expanded}",
+                f"Local maximum score reached: {current_score:.1f}",
+                f"Optimal 4-step path: {current_path}",
+                f"Chosen action (first step): {action}"
+            ]
+        }
+        return action

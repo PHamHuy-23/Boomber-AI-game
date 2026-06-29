@@ -91,20 +91,39 @@ class ExpectimaxAgent(BaseAgent):
         best_action = "WAIT"
         best_score = -float('inf')
 
+        self.nodes_expanded = 0
+        action_scores = {}
+
         # Nút gốc Expectimax (MAX node)
         for action in valid_actions:
             next_state = simulate_state(state_info, action)
+            self.nodes_expanded += 1
             # Gọi nút cơ hội (CHANCE node) cho đối thủ ở tầng tiếp theo
             score = self.chance_value(next_state, self.depth - 1)
+            action_scores[action] = score
             
             if score > best_score:
                 best_score = score
                 best_action = action
             
+        self.last_trace = {
+            "algorithm": "expectimax",
+            "nodes_expanded": self.nodes_expanded,
+            "search_depth": self.depth,
+            "evaluations": action_scores,
+            "chosen_action": best_action,
+            "reasoning": [
+                f"Running Expectimax Search (depth={self.depth})...",
+                f"Total nodes evaluated: {self.nodes_expanded}",
+                f"Candidate actions expected values: " + ", ".join(f"{act}: {val:.1f}" for act, val in action_scores.items()),
+                f"Chosen move: {best_action} (Expected Utility: {best_score:.1f})"
+            ]
+        }
         return best_action
 
     def max_value(self, state: dict, depth: int) -> float:
         """MAX node: Chọn hành động tối đa hóa giá trị kỳ vọng nhận được."""
+        self.nodes_expanded += 1
         if depth == 0 or state["player_pos"] in state["explosions"]:
             return self.evaluate_state_adversarial(state)
 
@@ -120,6 +139,7 @@ class ExpectimaxAgent(BaseAgent):
 
     def chance_value(self, state: dict, depth: int) -> float:
         """CHANCE node: Tính giá trị kỳ vọng trung bình dựa trên mọi hành động khả thi của kẻ địch."""
+        self.nodes_expanded += 1
         if depth == 0 or state["player_pos"] in state["explosions"]:
             return self.evaluate_state_adversarial(state)
 

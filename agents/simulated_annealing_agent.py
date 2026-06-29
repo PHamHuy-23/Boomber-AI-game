@@ -148,6 +148,8 @@ class SimulatedAnnealingAgent(BaseAgent):
         
         temp = self.initial_temp
         domain = ["WAIT", "UP", "DOWN", "LEFT", "RIGHT", "BOMB"]
+        nodes_expanded = 0
+        accepted_worse_moves = 0
         
         # Vòng lặp tối ưu hóa Simulated Annealing
         for _ in range(self.max_iterations):
@@ -160,6 +162,7 @@ class SimulatedAnnealingAgent(BaseAgent):
             new_action = random.choice([a for a in domain if a != current_path[mutate_idx]])
             neighbor_path[mutate_idx] = new_action
             
+            nodes_expanded += 1
             neighbor_score = self.evaluate_path(neighbor_path, info)
             delta_e = neighbor_score - current_score
             
@@ -174,7 +177,26 @@ class SimulatedAnnealingAgent(BaseAgent):
                 if random.random() < prob:
                     current_path = neighbor_path
                     current_score = neighbor_score
+                    accepted_worse_moves += 1
                     
             temp *= self.cooling_rate
             
-        return best_path[0]
+        action = best_path[0]
+        self.last_trace = {
+            "algorithm": "simulated_annealing",
+            "nodes_expanded": nodes_expanded,
+            "search_depth": 4, # 4-step path horizon
+            "path": best_path,
+            "chosen_action": action,
+            "temperature": temp,
+            "accepted_worse": accepted_worse_moves,
+            "reasoning": [
+                "Running Simulated Annealing (Probabilistic Local Search)...",
+                f"Iterations run: {nodes_expanded}",
+                f"Final temperature: {temp:.2f}",
+                f"Accepted worse moves (escapes): {accepted_worse_moves}",
+                f"Optimal path: {best_path} (Score: {best_score:.1f})",
+                f"Chosen action: {action}"
+            ]
+        }
+        return action

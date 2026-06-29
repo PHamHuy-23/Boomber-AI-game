@@ -8,6 +8,75 @@
 
 ---
 
+## 🖥️ Web UI Dashboard & Modules
+
+Here are the screenshots of the three main application modules designed for the platform, showcasing the simulation configuration, CSP map generation, and the real-time tournament analytics dashboard:
+
+### 🎮 Module 1: AI Agent Simulation & Playground
+* Configures live play benchmarks, runs simulated ticks, and monitors path planning / utility evaluations for search agents.
+![Module 1 - Playground](demo_gifs/module1_playground.png)
+
+### 🗺️ Module 2: Procedural Map Generation (CSP)
+* Procedurally builds fully solvable, symmetric game grids with customized wall density, brick ratios, and spawn positions governed by constraint satisfaction solvers.
+![Module 2 - CSP Map](demo_gifs/module2_csp_map.png)
+
+### 📊 Module 3: Tournament Analytics Dashboard
+* Visualizes win rates, ELO ratings, agent survival steps, items collected, and average latencies across all 13 algorithms using interactive graphs.
+![Module 3 - Analytics](demo_gifs/module3_analytics.png)
+
+---
+
+## 🎮 Visual Demonstrations (Animated GIFs)
+
+Below are live gameplay and tactical scenario simulations generated using the actual game engine and original pixel-art assets:
+
+### 1. ⚔️ Standard 4-Player Match
+* **Agents**: Player 1 (Minimax), Player 2 (A*), Player 3 (Expectimax), Player 4 (Greedy).
+* **Behavior**: Watch all 4 search agents actively navigating, clearing bricks, collecting items, and trapping each other with bombs.
+![Standard Match](demo_gifs/match_4_players.gif)
+
+### 2. 🏃‍♂️ Scenario 1: Hazard Escape (A* Search)
+* **Goal**: Player 1 (A*) detects a bomb placed next to it, calculates the explosion coverage, and escapes to safety behind a wall.
+![Hazard Escape](demo_gifs/scenario_hazard_escape.gif)
+
+### 3. 💣 Scenario 2: Bomb Placement (Greedy Search)
+* **Goal**: Player 1 (Greedy) navigates to the nearest brick walls and places bombs to destroy obstacles.
+![Bomb Placement](demo_gifs/scenario_bomb_placement.gif)
+
+### 4. 🧭 Scenario 3: Long Navigation (BFS Search)
+* **Goal**: Player 1 (BFS) finds the shortest path through a large open map to reach the target opponent.
+![Long Navigation](demo_gifs/scenario_long_navigation.gif)
+
+### 5. 🥊 Scenario 4: Corner Duel (Minimax vs Minimax)
+* **Goal**: Two close-range agents lock in a tight corridor, evaluating actions using minimax search.
+![Corner Duel](demo_gifs/scenario_corner_duel.gif)
+---
+
+## 🧠 How the AI Thinks (Search Visualization)
+
+To research and benchmark the multi-agent AI, the platform provides search overlays displaying how each algorithm makes decisions in real-time. Below are visual demos of three algorithms from different search groups (Informed, Uninformed, and Adversarial):
+
+### 1. 🔍 A* Search (Informed Search Group)
+* **Visual Overlay**: The **light-blue overlay** indicates the computed optimal path to the target.
+* **Thinking Process**: Evaluating heuristics (Manhattan distance to targets and safety cells), expanding nodes efficiently toward the goal.
+* **Telemetry Bar**: Displays expanded nodes, current frontier size, depth, and best chosen action.
+![A* Thinking](demo_gifs/thinking_astar.gif)
+
+### 2. 🌀 DFS Search (Uninformed Search Group)
+* **Visual Overlay**: The **light-blue overlay** shows deep, winding path explorations.
+* **Thinking Process**: Expands nodes down a single branch without a heuristic guidance, resulting in long non-optimal path predictions.
+* **Telemetry Bar**: Shows depth and total nodes expanded.
+![DFS Thinking](demo_gifs/thinking_dfs.gif)
+
+### 3. ⚔️ Minimax Search with Alpha-Beta Pruning (Adversarial Search Group)
+* **Visual Overlay**: The **numbers overlayed on cells** show the computed minimax utility values for candidate directions.
+  * 🟢 **Green numbers** (positive values) represent safe, rewarding tiles.
+  * 🔴 **Red numbers** (negative values) represent hazard zones or death traps (e.g. from nearby bombs).
+* **Thinking Process**: Simulating adversarial moves of the nearest enemy to minimize the player's risk while maximizing their reward.
+![Minimax Thinking](demo_gifs/thinking_minimax.gif)
+
+---
+
 ## 👥 Authors
 
 | Name | Student ID |

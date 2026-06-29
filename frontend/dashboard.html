@@ -1,539 +1,1394 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bomberman AI Lab</title>
+    <title>Bomberman AI Research Platform</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
-            --bg: #07111f;
-            --bg-2: #0a1729;
-            --panel: rgba(13, 22, 38, 0.88);
-            --panel-strong: rgba(15, 26, 46, 0.96);
-            --line: rgba(148, 163, 184, 0.18);
-            --line-strong: rgba(56, 189, 248, 0.28);
-            --text: #e5eefc;
-            --muted: #94a3b8;
-            --cyan: #38bdf8;
-            --cyan-2: #22d3ee;
-            --green: #34d399;
-            --amber: #fbbf24;
-            --pink: #fb7185;
-            --shadow: 0 24px 60px rgba(2, 6, 23, 0.42);
-            --radius: 22px;
-            --cell-size: 34px;
+            --bg-base: #060b13;
+            --bg-sidebar: #09101f;
+            --bg-card: rgba(13, 21, 38, 0.7);
+            --bg-card-hover: rgba(18, 30, 54, 0.85);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-glow: rgba(6, 182, 212, 0.25);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            
+            --primary: #06b6d4;
+            --primary-gradient: linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%);
+            --secondary: #8b5cf6;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-pink: #f43f5e;
+            
+            --sidebar-width: 260px;
+            --sidebar-collapsed-width: 72px;
+            --header-height: 64px;
+            --card-radius: 16px;
+            --transition-speed: 0.3s;
         }
 
-        * { box-sizing: border-box; }
-        html { scroll-behavior: smooth; }
-        body {
+        * {
+            box-sizing: border-box;
             margin: 0;
-            font-family: 'Space Grotesk', sans-serif;
-            color: var(--text);
-            background:
-                radial-gradient(circle at top left, rgba(56, 189, 248, 0.14), transparent 32%),
-                radial-gradient(circle at top right, rgba(251, 113, 133, 0.14), transparent 30%),
-                linear-gradient(180deg, #050b14, #0a1627 58%, #050b14);
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-primary);
             min-height: 100vh;
             overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(6, 182, 212, 0.06) 0%, transparent 40%),
+                radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 40%);
+            background-attachment: fixed;
         }
 
-        body::before {
-            content: '';
+        /* Scrollbar styles */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 99px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        /* App Layout Shell */
+        .app-shell {
+            display: flex;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* Sidebar Styling */
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: var(--bg-sidebar);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
             position: fixed;
-            inset: 0;
-            background-image:
-                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
-            background-size: 36px 36px;
-            pointer-events: none;
-            opacity: 0.22;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 100;
+            transition: width var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(20px);
         }
 
-        button, select, input { font: inherit; }
-        .app-shell { position: relative; z-index: 1; }
-        .topbar {
+        .sidebar.collapsed {
+            width: var(--sidebar-collapsed-width);
+        }
+
+        .brand-section {
+            height: var(--header-height);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            border-bottom: 1px solid var(--border-color);
+            overflow: hidden;
+            white-space: nowrap;
+            gap: 12px;
+        }
+
+        .brand-logo {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: var(--primary-gradient);
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.4);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            color: #fff;
+            font-size: 1.1rem;
+        }
+
+        .brand-name {
+            font-weight: 700;
+            font-size: 1.15rem;
+            letter-spacing: -0.02em;
+            background: linear-gradient(to right, #fff, var(--text-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            transition: opacity var(--transition-speed);
+        }
+
+        .sidebar.collapsed .brand-name {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .nav-menu {
+            list-style: none;
+            padding: 20px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex-grow: 1;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 14px;
+            border-radius: 12px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            cursor: pointer;
+            transition: all var(--transition-speed);
+            white-space: nowrap;
+            gap: 14px;
+        }
+
+        .nav-item:hover, .nav-item.active {
+            background-color: var(--bg-card-hover);
+            color: var(--text-primary);
+        }
+
+        .nav-item.active {
+            border-left: 3px solid var(--primary);
+            border-radius: 4px 12px 12px 4px;
+        }
+
+        .nav-item svg {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+            transition: transform var(--transition-speed);
+        }
+
+        .nav-item:hover svg {
+            transform: scale(1.05);
+        }
+
+        .nav-label {
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: opacity var(--transition-speed);
+        }
+
+        .sidebar.collapsed .nav-label {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .sidebar-footer {
+            padding: 16px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow: hidden;
+        }
+
+        .sidebar-collapse-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px;
+            border-radius: 8px;
+            align-self: flex-end;
+            transition: background var(--transition-speed);
+        }
+
+        .sidebar-collapse-btn:hover {
+            background: var(--border-color);
+            color: var(--text-primary);
+        }
+
+        /* Main Content wrapper */
+        .main-wrapper {
+            margin-left: var(--sidebar-width);
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            transition: margin-left var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .sidebar.collapsed + .main-wrapper {
+            margin-left: var(--sidebar-collapsed-width);
+        }
+
+        /* Header bar */
+        .header {
+            height: var(--header-height);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 30px;
+            background-color: rgba(6, 11, 19, 0.8);
+            backdrop-filter: blur(10px);
             position: sticky;
             top: 0;
-            z-index: 30;
-            display: grid;
-            grid-template-columns: minmax(0, 1.2fr) auto auto;
-            gap: 1rem;
+            z-index: 90;
+        }
+
+        .page-title-section h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .header-actions {
+            display: flex;
             align-items: center;
-            padding: 18px 24px;
-            backdrop-filter: blur(18px);
-            background: rgba(5, 11, 20, 0.84);
-            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
-            box-shadow: 0 8px 30px rgba(2, 6, 23, 0.28);
+            gap: 16px;
         }
-        .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
-        .brand-mark {
-            width: 44px; height: 44px; border-radius: 14px;
-            background:
-                radial-gradient(circle at 30% 30%, #fff, rgba(255,255,255,0) 28%),
-                linear-gradient(135deg, #38bdf8, #fb7185 75%);
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.12), 0 12px 30px rgba(56,189,248,0.28);
-            flex: 0 0 auto;
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            padding: 6px 14px;
+            border-radius: 99px;
+            font-size: 0.85rem;
+            font-weight: 600;
         }
-        .brand-title { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.02em; margin-bottom: 2px; }
-        .brand-subtitle { color: var(--muted); font-size: 0.86rem; }
-        .topnav { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-        .topnav button {
-            border: 1px solid rgba(148, 163, 184, 0.14);
-            background: rgba(15, 23, 42, 0.72);
-            color: var(--text);
-            padding: 10px 14px; border-radius: 999px; cursor: pointer;
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--text-muted);
         }
-        .top-status { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
-        .pill {
-            display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px;
-            border-radius: 999px; border: 1px solid rgba(148, 163, 184, 0.16);
-            background: rgba(15, 23, 42, 0.78); color: var(--text); font-size: 0.84rem; font-weight: 600;
+
+        .status-indicator.online {
+            background-color: var(--accent-green);
+            box-shadow: 0 0 8px var(--accent-green);
         }
-        .pill::before { content: ''; width: 9px; height: 9px; border-radius: 999px; background: var(--muted); }
-        .pill-loading::before { background: var(--amber); }
-        .pill-ready::before { background: var(--green); }
-        .pill-offline::before { background: var(--pink); }
-        .workspace { width: min(1680px, calc(100vw - 28px)); margin: 0 auto; padding: 18px 0 46px; }
-        .section { margin-top: 18px; padding: 18px; }
-        .section-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 16px; }
-        .section-title { margin: 0; font-size: clamp(1.25rem, 2vw, 2rem); letter-spacing: -0.03em; }
-        .section-desc { margin: 0; color: var(--muted); font-size: 0.92rem; max-width: 62ch; line-height: 1.5; }
-        .panel {
-            background: linear-gradient(180deg, rgba(16, 24, 40, 0.94), rgba(11, 19, 33, 0.94));
-            border: 1px solid rgba(148, 163, 184, 0.12); border-radius: var(--radius); box-shadow: var(--shadow);
+
+        .status-indicator.offline {
+            background-color: var(--accent-pink);
+            box-shadow: 0 0 8px var(--accent-pink);
         }
-        .game-layout, .lab-layout, .experiment-grid { display: grid; gap: 18px; }
-        .game-layout { grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.72fr); align-items: start; }
-        .board-panel, .lab-main, .lab-side, .log-card, .experiment-card, .card { padding: 18px; }
-        .board-toolbar, .lab-toolbar, .log-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-        .toolbar-group { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-        .select, .input, .slider {
-            border-radius: 12px; border: 1px solid rgba(148, 163, 184, 0.16); background: rgba(5, 11, 20, 0.72);
-            color: var(--text); min-height: 42px; padding: 0 12px;
+
+        /* Main Workspace Contents */
+        .content-container {
+            padding: 24px 30px;
+            flex-grow: 1;
+            overflow-y: auto;
+            max-width: 1800px;
+            width: 100%;
+            margin: 0 auto;
         }
-        .slider { padding: 0; accent-color: var(--cyan); }
-        .action-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+
+        /* Panel sections */
+        .dashboard-section {
+            display: none;
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        .dashboard-section.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Card and Panel Elements */
+        .glass-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--card-radius);
+            backdrop-filter: blur(16px);
+            padding: 20px;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+            transition: border-color 0.25s, box-shadow 0.25s;
+        }
+
+        .glass-card:hover {
+            border-color: rgba(6, 182, 212, 0.18);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            padding-bottom: 10px;
+        }
+
+        .card-header h2 {
+            font-size: 1.05rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Module 1: Game Playground grid */
+        .playground-grid {
+            display: grid;
+            grid-template-columns: 280px 1fr 340px;
+            gap: 20px;
+            align-items: start;
+        }
+
+        /* Controls Column */
+        .controls-card {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-group label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .input-select, .input-text {
+            background-color: rgba(6, 11, 19, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            padding: 10px 12px;
+            font-size: 0.9rem;
+            outline: none;
+            width: 100%;
+            transition: border-color var(--transition-speed);
+        }
+
+        .input-select:focus, .input-text:focus {
+            border-color: var(--primary);
+        }
+
+        /* Playback buttons */
+        .btn-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
         .btn {
-            min-height: 42px; border: 1px solid transparent; border-radius: 12px; padding: 0 14px;
-            cursor: pointer; color: white; font-weight: 700;
+            background-color: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all var(--transition-speed);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
-        .btn-primary { background: linear-gradient(135deg, #22c55e, #0891b2); }
-        .btn-secondary { background: rgba(15, 23, 42, 0.92); border-color: rgba(148, 163, 184, 0.18); }
-        .btn-accent { background: linear-gradient(135deg, #38bdf8, #8b5cf6); }
-        .btn-warn { background: linear-gradient(135deg, #f97316, #fb7185); }
-        .board-shell { position: relative; width: 100%; }
-        .board-frame {
-            position: relative; padding: 14px; border-radius: 26px; border: 1px solid rgba(56, 189, 248, 0.2);
-            background:
-                radial-gradient(circle at top left, rgba(56, 189, 248, 0.1), transparent 34%),
-                radial-gradient(circle at bottom right, rgba(251, 113, 133, 0.1), transparent 34%),
-                linear-gradient(180deg, rgba(6, 12, 24, 0.96), rgba(6, 12, 24, 0.88));
-            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 24px 50px rgba(2, 6, 23, 0.45);
+
+        .btn:hover {
+            background-color: rgba(255, 255, 255, 0.12);
         }
-        .board-stage {
-            position: relative; min-height: 640px; display: flex; align-items: center; justify-content: center; overflow: hidden;
+
+        .btn-primary-action {
+            background: var(--primary-gradient);
+            border: none;
+            color: #fff;
+            box-shadow: 0 4px 15px rgba(6, 182, 212, 0.3);
         }
-        .board {
-            position: relative; display: grid; gap: 3px; width: fit-content; max-width: 100%;
+
+        .btn-primary-action:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
         }
-        .tile {
-            position: relative; width: var(--cell-size); height: var(--cell-size); border-radius: 8px; overflow: hidden;
-            background-size: cover; background-position: center; image-rendering: pixelated; box-shadow: inset 0 -3px 0 rgba(0,0,0,0.22);
+
+        .slider-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 6px;
         }
-        .tile-empty-even { background-image: url('assets/Ground.png'); }
-        .tile-empty-odd { background-image: url('assets/Ground.png'); filter: brightness(0.92); }
-        .tile-wall { background-image: url('assets/Block.png'); }
-        .tile-brick { background-image: url('assets/Brick.png'); }
-        .tile-bomb {
+
+        .slider-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+        }
+
+        .range-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 5px;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            outline: none;
+            accent-color: var(--primary);
+        }
+
+        /* Center Board Panel */
+        .center-board-panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 580px;
+        }
+
+        .board-meta {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            background-color: rgba(0,0,0,0.2);
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.03);
+        }
+
+        .meta-item {
+            display: flex;
+            gap: 6px;
+        }
+
+        .meta-label {
+            color: var(--text-muted);
+        }
+
+        .board-container {
+            position: relative;
+            background-color: #03060a;
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 10px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            width: fit-content;
+            margin: 0 auto;
+        }
+
+        .game-board {
+            display: grid;
+            gap: 2px;
+            background-color: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Cell representation */
+        .board-cell {
+            width: 34px;
+            height: 34px;
+            background-size: cover;
+            image-rendering: pixelated;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Ground styles */
+        .cell-ground-even, .cell-ground-odd {
+            background-image: url('assets/Ground.png');
+        }
+        
+        /* Wall structures */
+        .cell-wall { 
+            background-image: url('assets/Block.png');
+        }
+        
+        .cell-brick {
+            background-image: url('assets/Brick.png');
+        }
+
+        /* Bomb & explosion */
+        /* Bomb & explosion */
+        .cell-bomb {
             background-image: url('assets/Bomb.png');
-            background-size: calc(4 * var(--cell-size)) var(--cell-size);
-            background-position: 0px 0px;
+            background-size: 136px 34px;
             animation: bombSprite 0.6s steps(4) infinite;
         }
-        .tile-explosion-center {
-            background-image: url('assets/ExplosionStart.png');
-            background-size: calc(8 * var(--cell-size)) var(--cell-size);
-            background-position: 0px 0px;
-            animation: explodeSprite 0.5s steps(8) infinite;
-        }
-        .tile-explosion-horizontal {
-            background-image: url('assets/ExplosionMiddle.png');
-            background-size: calc(8 * var(--cell-size)) var(--cell-size);
-            background-position: 0px 0px;
-            animation: explodeSprite 0.5s steps(8) infinite;
-        }
-        .tile-explosion-vertical {
-            background-image: url('assets/ExplosionMiddle.png');
-            background-size: calc(8 * var(--cell-size)) var(--cell-size);
-            background-position: 0px 0px;
-            animation: explodeSprite 0.5s steps(8) infinite;
-            transform: rotate(90deg);
-        }
-        .tile-item-radius { background-image: url('assets/ItemBlastRadius.png'); }
-        .tile-item-capacity { background-image: url('assets/ItemExtraBomb.png'); }
-        .tile-fog {
-            background:
-                radial-gradient(circle at center, rgba(56, 189, 248, 0.08), rgba(2, 6, 23, 0.82)),
-                linear-gradient(180deg, rgba(7, 12, 22, 0.92), rgba(2, 6, 23, 0.96));
-        }
-        .tile-fog::after {
-            content: '?'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-            color: rgba(148, 163, 184, 0.55); font-size: 0.95rem; font-weight: 700;
-        }
-        .agents-layer { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
-        .agent {
-            width: 28px; height: 42px; margin-top: -12px; background-size: 112px 168px; image-rendering: pixelated; animation: walk 0.68s steps(4) infinite;
-        }
-        .agent-player_1 { background-image: url('assets/PlayerWhiteWalk.png'); }
-        .agent-player_2 { background-image: url('assets/PlayerBlackWalk.png'); }
-        .agent-player_3 { background-image: url('assets/PlayerBlueWalk.png'); }
-        .agent-player_4 { background-image: url('assets/PlayerRedWalk.png'); }
-        .agent.dir-up { background-position-y: 0; }
-        .agent.dir-down { background-position-y: -42px; }
-        .agent.dir-left { background-position-y: -84px; }
-        .agent.dir-right { background-position-y: -126px; }
         
-        .agent.agent-dead {
-            width: 28px;
-            height: 42px;
-            margin-top: -12px;
-            background-size: 168px 42px;
-            background-position: 0 0;
-            animation: agentDeath 0.9s steps(6) forwards;
-        }
-        .agent-player_1.agent-dead { background-image: url('assets/PlayerWhiteDeath.png'); }
-        .agent-player_2.agent-dead { background-image: url('assets/PlayerBlackDeath.png'); }
-        .agent-player_3.agent-dead { background-image: url('assets/PlayerBlueDeath.png'); }
-        .agent-player_4.agent-dead { background-image: url('assets/PlayerRedDeath.png'); }
-        .board-placeholder {
-            position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center;
-            color: var(--muted); background:
-                radial-gradient(circle at top, rgba(56, 189, 248, 0.1), transparent 44%),
-                linear-gradient(180deg, rgba(5, 11, 20, 0.92), rgba(5, 11, 20, 0.98));
-            border: 1px dashed rgba(148, 163, 184, 0.2); border-radius: 24px;
-        }
-        .board-placeholder[hidden] {
-            display: none !important;
-        }
-        .placeholder-card { max-width: 560px; padding: 20px 22px; border-radius: 18px; background: rgba(8, 15, 28, 0.9); border: 1px solid rgba(56, 189, 248, 0.18); }
-        .control-column { display: grid; gap: 18px; }
-        .card h2, .card h3, .lab-side h3, .experiment-card h3 { margin: 0 0 14px; font-size: 1rem; letter-spacing: -0.02em; }
-        .card-subtext { margin: -8px 0 14px; color: var(--muted); font-size: 0.88rem; line-height: 1.45; }
-        .stack, .lab-meta-grid, .experiment-grid, .side-stack { display: grid; gap: 12px; }
-        .metric-row, .status-row, .list-item {
-            display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px;
-            border-radius: 14px; background: rgba(148, 163, 184, 0.05); border: 1px solid rgba(148, 163, 184, 0.08);
-        }
-        .metric-label { color: var(--muted); font-size: 0.84rem; }
-        .metric-value { font-size: 0.96rem; font-weight: 700; }
-        .status-list { display: grid; gap: 10px; }
-        .status-name { display: flex; gap: 10px; align-items: center; font-weight: 700; }
-        .status-dot { width: 12px; height: 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.7); }
-        .status-meta { color: var(--muted); font-size: 0.84rem; text-align: right; }
-        .lab-layout { grid-template-columns: minmax(0, 1.2fr) minmax(330px, 0.6fr); }
-        .lab-meta-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 14px; }
-        .mini-card { padding: 12px; border-radius: 14px; background: rgba(148, 163, 184, 0.05); border: 1px solid rgba(148, 163, 184, 0.08); }
-        .mini-card .label { color: var(--muted); font-size: 0.8rem; margin-bottom: 6px; }
-        .mini-card .value { font-size: 1rem; font-weight: 700; }
-        .whiteboard-stage {
-            position: relative; min-height: 560px; border-radius: 22px; border: 1px solid rgba(148, 163, 184, 0.12);
-            overflow: hidden;
-            background: radial-gradient(circle at center, rgba(56, 189, 248, 0.08), transparent 36%), linear-gradient(180deg, rgba(5, 11, 20, 0.94), rgba(7, 16, 29, 0.96));
-            touch-action: none;
-        }
-        .tree-hint { position: absolute; right: 14px; top: 14px; padding: 8px 10px; border-radius: 999px; background: rgba(5, 11, 20, 0.76); border: 1px solid rgba(148, 163, 184, 0.14); color: var(--muted); font-size: 0.8rem; z-index: 2; }
-        .tree-canvas { position: absolute; left: 0; top: 0; width: 2400px; height: 1400px; transform-origin: 0 0; }
-        .tree-edges { position: absolute; inset: 0; width: 100%; height: 100%; transform-origin: 0 0; }
-        .tree-node {
-            position: absolute; width: 210px; padding: 12px; border-radius: 16px; background: rgba(9, 16, 29, 0.96);
-            border: 1px solid rgba(148, 163, 184, 0.16); box-shadow: 0 14px 28px rgba(2, 6, 23, 0.35); cursor: pointer;
-        }
-        .tree-node.is-selected { border-color: rgba(56, 189, 248, 0.42); box-shadow: 0 18px 28px rgba(2, 6, 23, 0.48); }
-        .tree-node .kind { font-size: 0.74rem; color: var(--cyan); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
-        .tree-node .title { font-size: 0.95rem; font-weight: 700; margin-bottom: 8px; }
-        .tree-node .meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.74rem; color: var(--muted); line-height: 1.5; }
-        .tree-details { margin-top: 14px; padding: 14px; border-radius: 16px; background: rgba(148, 163, 184, 0.05); border: 1px solid rgba(148, 163, 184, 0.08); }
-        .tree-details h4 { margin: 0 0 8px; font-size: 0.98rem; }
-        .tree-details p { margin: 0; color: var(--muted); line-height: 1.55; font-size: 0.9rem; }
-        .list-box { max-height: 220px; overflow: auto; padding-right: 6px; }
-        .list-item strong { font-size: 0.88rem; }
-        .list-item span { color: var(--muted); font-size: 0.82rem; line-height: 1.45; }
-        .log-panel { padding: 18px; }
-        .log-list { max-height: 320px; overflow: auto; display: grid; gap: 10px; padding-right: 6px; }
-        .log-row {
-            display: grid; grid-template-columns: 108px 72px 92px minmax(0, 1fr); gap: 12px;
-            padding: 11px 12px; border-radius: 14px; background: rgba(148, 163, 184, 0.05); border: 1px solid rgba(148, 163, 184, 0.08); align-items: start;
-        }
-        .log-row .time, .log-row .step, .log-row .agent { font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem; color: var(--muted); }
-        .chart-placeholder { min-height: 220px; border-radius: 18px; padding: 16px; border: 1px solid rgba(148, 163, 184, 0.1); background: linear-gradient(180deg, rgba(148, 163, 184, 0.04), rgba(148, 163, 184, 0.02)), radial-gradient(circle at top right, rgba(56, 189, 248, 0.1), transparent 48%); }
-        .chart-ghost { margin-top: 14px; min-height: 110px; border-radius: 16px; border: 1px dashed rgba(148, 163, 184, 0.18); background: linear-gradient(180deg, rgba(5, 11, 20, 0.72), rgba(5, 11, 20, 0.9)); }
-        @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
-        @keyframes walk { from { background-position-x: 0; } to { background-position-x: -112px; } }
         @keyframes bombSprite {
             from { background-position-x: 0px; }
-            to { background-position-x: calc(-4 * var(--cell-size)); }
+            to { background-position-x: -136px; }
         }
+
+        .cell-explosion-center {
+            background-image: url('assets/ExplosionStart.png');
+            background-size: 272px 34px;
+            animation: explodeSprite 0.5s steps(8) infinite;
+        }
+
+        .cell-explosion-horizontal {
+            background-image: url('assets/ExplosionMiddle.png');
+            background-size: 272px 34px;
+            animation: explodeSprite 0.5s steps(8) infinite;
+        }
+
+        .cell-explosion-vertical {
+            position: relative;
+        }
+        
+        .cell-explosion-vertical::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: url('assets/ExplosionMiddle.png');
+            background-size: 272px 34px;
+            transform: rotate(90deg);
+            animation: explodeSprite 0.5s steps(8) infinite;
+        }
+
         @keyframes explodeSprite {
             from { background-position-x: 0px; }
-            to { background-position-x: calc(-8 * var(--cell-size)); }
+            to { background-position-x: -272px; }
         }
-        @keyframes agentDeath {
-            from { background-position-x: 0; }
-            to { background-position-x: -168px; }
+
+        @keyframes walkSprite {
+            from { background-position-x: 0px; }
+            to { background-position-x: -112px; }
         }
-        @media (max-width: 1280px) {
-            .topbar { grid-template-columns: 1fr; justify-items: start; }
-            .top-status { justify-content: flex-start; }
-            .game-layout, .lab-layout, .experiment-grid { grid-template-columns: 1fr; }
-            .lab-meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+        /* Upgrades */
+        .cell-item-radius {
+            background-image: url('assets/ItemBlastRadius.png');
+            background-size: cover;
         }
-        @media (max-width: 900px) {
-            :root { --cell-size: 28px; }
-            .section { padding: 14px 0; }
-            .board-stage { min-height: 540px; }
-            .whiteboard-stage { min-height: 460px; }
-            .log-row { grid-template-columns: 1fr; }
+        
+        .cell-item-capacity {
+            background-image: url('assets/ItemExtraBomb.png');
+            background-size: cover;
+        }
+
+        /* Fog of War cell overlay */
+        .cell-fog {
+            background-color: #030508 !important;
+            background-image: none !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+        
+        .cell-fog::after {
+            content: '?';
+            color: rgba(255, 255, 255, 0.05);
+            font-size: 0.85rem;
+            font-family: monospace;
+        }
+
+        /* Agent avatar */
+        .cell-agent {
+            width: 28px;
+            height: 42px;
+            margin-top: -14px;
+            background-size: 112px 168px;
+            image-rendering: pixelated;
+            position: absolute;
+            z-index: 10;
+            font-size: 0;
+            color: transparent;
+            animation: walkSprite 0.6s steps(4) infinite;
+            transition: transform 0.1s ease;
+        }
+
+        .agent-p1 { background-image: url('assets/PlayerWhiteWalk.png'); }
+        .agent-p2 { background-image: url('assets/PlayerBlackWalk.png'); }
+        .agent-p3 { background-image: url('assets/PlayerBlueWalk.png'); }
+        .agent-p4 { background-image: url('assets/PlayerRedWalk.png'); }
+        
+        .cell-agent.dir-up { background-position-y: 0px; }
+        .cell-agent.dir-down { background-position-y: -42px; }
+        .cell-agent.dir-left { background-position-y: -84px; }
+        .cell-agent.dir-right { background-position-y: -126px; }
+
+        .cell-agent.agent-dead {
+            opacity: 0.4;
+            filter: grayscale(1) contrast(0.6);
+            animation: none !important;
+        }
+
+        /* Right configurations column */
+        .agent-configs-col {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-height: calc(100vh - 120px);
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .config-block {
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 10px;
+            padding: 12px;
+            background-color: rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .config-block-title {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .config-block-title::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        .title-p1::before { background-color: #06b6d4; }
+        .title-p2::before { background-color: #ec4899; }
+        .title-p3::before { background-color: #10b981; }
+        .title-p4::before { background-color: #f59e0b; }
+
+        .telemetry-row {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            background-color: rgba(0,0,0,0.2);
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+        }
+
+        .tel-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .tel-label { color: var(--text-muted); font-size: 0.72rem; }
+        .tel-val { font-weight: 600; }
+
+        /* Module 2: Tactical Sandbox grid */
+        .sandbox-layout {
+            display: grid;
+            grid-template-columns: 240px 1fr 340px;
+            gap: 20px;
+            align-items: start;
+        }
+
+        .scenario-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .scenario-item {
+            background-color: rgba(0,0,0,0.2);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all var(--transition-speed);
+        }
+
+        .scenario-item:hover, .scenario-item.active {
+            background-color: rgba(6, 182, 212, 0.08);
+            border-color: var(--primary);
+        }
+
+        .scenario-name {
+            font-weight: 600;
+            font-size: 0.88rem;
+            margin-bottom: 4px;
+        }
+
+        .scenario-desc {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            line-height: 1.35;
+        }
+
+        .decision-log-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            height: 520px;
+        }
+
+        .log-box {
+            background-color: #03060a;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            color: #d1d5db;
+        }
+
+        .log-line { margin-bottom: 6px; }
+        .log-highlight-yellow { color: var(--accent-amber); }
+        .log-highlight-cyan { color: var(--primary); }
+        .log-highlight-green { color: var(--accent-green); }
+        .log-highlight-pink { color: var(--accent-pink); }
+        .log-header { font-weight: 700; color: #fff; border-bottom: 1px dashed rgba(255,255,255,0.06); padding-bottom: 4px; margin-bottom: 8px; }
+
+        /* Path Overlay Line on canvas or grid */
+        .cell-path {
+            background-color: rgba(6, 182, 212, 0.12);
+            border: 1px dashed rgba(6, 182, 212, 0.4);
+        }
+
+        /* Module 3: Analytics Dashboard */
+        .analytics-summary-cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .analytics-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--card-radius);
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        }
+
+        .analytics-card-label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .analytics-card-value {
+            font-size: 1.8rem;
+            font-weight: 800;
+            background: linear-gradient(to right, #fff, var(--text-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .analytics-card-footer {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .charts-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .chart-card {
+            min-height: 320px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            flex-grow: 1;
+            height: 250px;
+            width: 100%;
+        }
+
+        .replay-section {
+            margin-top: 24px;
+        }
+
+        .replay-grid {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 20px;
+            align-items: start;
+        }
+
+        .replay-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            width: 100%;
+            margin-top: 14px;
+            background-color: rgba(0,0,0,0.2);
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .slider-scrub {
+            flex-grow: 1;
+        }
+
+        /* Tooltip and popup styles */
+        .tab-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-weight: 600;
+            padding: 8px 16px;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all var(--transition-speed);
+        }
+
+        .tab-btn.active {
+            background-color: rgba(6, 182, 212, 0.08);
+            color: var(--primary);
+        }
+
+        /* Hide elements helper */
+        [hidden] {
+            display: none !important;
         }
     </style>
 </head>
 <body>
     <div class="app-shell">
-        <header class="topbar">
-            <div class="brand">
-                <div class="brand-mark"></div>
-                <div>
-                    <div class="brand-title">Bomberman AI Lab</div>
-                    <div class="brand-subtitle">Play, explain, and compare multi-agent search</div>
-                </div>
+        <!-- Sidebar -->
+        <aside class="sidebar" id="app-sidebar">
+            <div class="brand-section">
+                <div class="brand-logo">B</div>
+                <div class="brand-name">Bomberman AI</div>
             </div>
-            <nav class="topnav" aria-label="Site sections">
-                <button data-target="game-section">Play Game</button>
-                <button data-target="lab-section">Algorithm Lab</button>
-                <button data-target="experiment-section">Experiments</button>
-            </nav>
-            <div class="top-status">
-                <span id="connection-pill" class="pill pill-loading">Connecting</span>
-                <span id="step-pill" class="pill">Step 0</span>
-            </div>
-        </header>
+            
+            <ul class="nav-menu">
+                <li class="nav-item active" data-tab="game-tab">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg>
+                    <span class="nav-label">Game Playground</span>
+                </li>
+                <li class="nav-item" data-tab="lab-tab">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                        <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                        <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                    </svg>
+                    <span class="nav-label">Tactical Laboratory</span>
+                </li>
+                <li class="nav-item" data-tab="analytics-tab">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="20" x2="18" y2="10"></line>
+                        <line x1="12" y1="20" x2="12" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="14"></line>
+                    </svg>
+                    <span class="nav-label">Research Analytics</span>
+                </li>
+            </ul>
 
-        <main class="workspace">
-            <section class="section" id="game-section">
-                <div class="section-header">
-                    <div>
-                        <h1 class="section-title">Play Game</h1>
-                        <p class="section-desc">Quan sát toàn bộ trận đấu, chọn thuật toán cho từng player, bật hoặc tắt Fog of War và điều chỉnh tốc độ mô phỏng cho phù hợp với laptop.</p>
+            <div class="sidebar-footer">
+                <button class="sidebar-collapse-btn" id="collapse-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="collapse-icon">
+                        <polyline points="11 17 6 12 11 7"></polyline>
+                        <polyline points="18 17 13 12 18 7"></polyline>
+                    </svg>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Wrapper -->
+        <div class="main-wrapper">
+            <!-- Header -->
+            <header class="header">
+                <div class="page-title-section">
+                    <h1 id="page-display-title">Game Playground</h1>
+                </div>
+                <div class="header-actions">
+                    <div class="status-pill">
+                        <span class="status-indicator online" id="conn-indicator"></span>
+                        <span id="conn-text">FastAPI Server Connected</span>
                     </div>
                 </div>
+            </header>
 
-                <div class="game-layout">
-                    <article class="panel board-panel">
-                        <div class="board-toolbar">
-                            <div class="toolbar-group">
-                                <select id="game-view-select" class="select">
-                                    <option value="god">God View</option>
-                                    <option value="agent">Agent View</option>
-                                </select>
-                                <select id="focus-agent-select" class="select"></select>
-                                <label class="pill" style="cursor:pointer;">
-                                    <input id="chk-fow" type="checkbox" style="accent-color: var(--cyan); margin-right: 8px;">
-                                    Fog of War
-                                </label>
-                                <input id="fow-radius" class="input" type="number" min="1" max="6" value="4" style="width: 90px;">
+            <!-- Content Area Container -->
+            <main class="content-container">
+                
+                <!-- MODULE 1: GAME PLAYGROUND -->
+                <div class="dashboard-section active" id="game-tab">
+                    <div class="playground-grid">
+                        
+                        <!-- Left Panel: Controls -->
+                        <div class="glass-card controls-card">
+                            <div class="card-header">
+                                <h2>Match Controls</h2>
                             </div>
-                            <div class="toolbar-group">
-                                <span id="game-mode-pill" class="pill pill-ready">God View</span>
-                                <span id="game-status" class="pill">Ready</span>
+                            
+                            <div class="btn-grid">
+                                <button class="btn btn-primary-action" id="pg-start-btn">Start</button>
+                                <button class="btn" id="pg-pause-btn" disabled>Pause</button>
+                                <button class="btn" id="pg-reset-btn">Reset</button>
+                                <button class="btn" id="pg-step-btn">Next Step</button>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="pg-speed-slider">Simulation Speed</label>
+                                <div class="slider-container">
+                                    <input type="range" min="100" max="1000" value="300" step="50" class="range-slider" id="pg-speed-slider">
+                                    <div class="slider-labels">
+                                        <span>Fast (100ms)</span>
+                                        <span id="pg-speed-val">300ms</span>
+                                        <span>Slow (1s)</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="pg-map-preset">Map Preset</label>
+                                <select class="input-select" id="pg-map-preset">
+                                    <option value="classic">Classic Deterministic</option>
+                                    <option value="open">Open Field</option>
+                                    <option value="dense">Dense Maze</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="pg-seed">Random Seed</label>
+                                <input type="number" class="input-text" id="pg-seed" value="42">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="pg-agent-count">Total Agents</label>
+                                <select class="input-select" id="pg-agent-count">
+                                    <option value="2">2 Players</option>
+                                    <option value="3">3 Players</option>
+                                    <option value="4" selected>4 Players</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                    <input type="checkbox" id="pg-fow-chk" style="accent-color: var(--primary);">
+                                    <span>Enable Fog of War</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-group" id="pg-fow-radius-group" style="display:none;">
+                                <label for="pg-fow-radius">FOW View Radius</label>
+                                <input type="number" min="1" max="6" value="4" class="input-text" id="pg-fow-radius">
                             </div>
                         </div>
 
-                        <div class="board-shell">
-                            <div class="board-frame">
-                                <div class="board-stage">
-                                    <div id="board" class="board"></div>
-                                    <div id="board-placeholder" class="board-placeholder">
-                                        <div class="placeholder-card">
-                                            <h3>Màn hình game đang chờ</h3>
-                                            <p>Nếu backend chưa chạy, khu này sẽ cho bạn biết rõ. Khi kết nối thành công, toàn bộ bàn cờ Bomberman sẽ xuất hiện ở đây với chế độ God View hoặc Agent View.</p>
+                        <!-- Center Panel: Grid Board -->
+                        <div class="glass-card center-board-panel">
+                            <div class="board-meta">
+                                <div class="meta-item">
+                                    <span class="meta-label">FPS:</span>
+                                    <span id="board-fps">0</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">Tick:</span>
+                                    <span id="board-tick">0</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">Remaining Time:</span>
+                                    <span id="board-time">300s</span>
+                                </div>
+                            </div>
+                            
+                            <div class="board-container">
+                                <div class="game-board" id="game-playground-board"></div>
+                            </div>
+                        </div>
+
+                        <!-- Right Panel: Configurations & Telemetry -->
+                        <div class="agent-configs-col">
+                            <div class="glass-card">
+                                <div class="card-header">
+                                    <h2>Agent Configuration</h2>
+                                </div>
+                                
+                                <div style="display:flex; flex-direction:column; gap:16px;">
+                                    <!-- Player 1 Config -->
+                                    <div class="config-block">
+                                        <div class="config-block-title title-p1">Player 1 (User / Bot)</div>
+                                        <select class="input-select" id="pg-algo-p1">
+                                            <option value="manual">Keyboard / Manual</option>
+                                            <option value="minimax" selected>Minimax Algorithm</option>
+                                            <option value="expectimax">Expectimax</option>
+                                            <option value="astar">A* Search</option>
+                                            <option value="bfs">BFS</option>
+                                            <option value="dfs">DFS</option>
+                                            <option value="greedy">Greedy Search</option>
+                                            <option value="hill_climbing">Hill Climbing</option>
+                                            <option value="simulated_annealing">Simulated Annealing</option>
+                                            <option value="and_or_search">AND-OR Search</option>
+                                            <option value="online_search">Online Search (LRTA*)</option>
+                                            <option value="backtracking">Backtracking (CSP)</option>
+                                            <option value="min_conflicts">Min-Conflicts</option>
+                                        </select>
+                                        
+                                        <div class="telemetry-row" id="tel-p1" style="display:none;">
+                                            <div class="tel-item"><span class="tel-label">HP / Score</span><span class="tel-val" id="tel-p1-hp">1 / 0</span></div>
+                                            <div class="tel-item"><span class="tel-label">Ammo / Blast</span><span class="tel-val" id="tel-p1-stats">1 / 1</span></div>
+                                            <div class="tel-item"><span class="tel-label">Position</span><span class="tel-val" id="tel-p1-pos">(1,1)</span></div>
+                                            <div class="tel-item"><span class="tel-label">State</span><span class="tel-val" id="tel-p1-state">Alive</span></div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Player 2 Config -->
+                                    <div class="config-block" id="block-p2">
+                                        <div class="config-block-title title-p2">Player 2 (AI)</div>
+                                        <select class="input-select" id="pg-algo-p2">
+                                            <option value="minimax" selected>Minimax Algorithm</option>
+                                            <option value="expectimax">Expectimax</option>
+                                            <option value="astar">A* Search</option>
+                                            <option value="bfs">BFS</option>
+                                            <option value="dfs">DFS</option>
+                                            <option value="greedy">Greedy Search</option>
+                                            <option value="hill_climbing">Hill Climbing</option>
+                                            <option value="simulated_annealing">Simulated Annealing</option>
+                                            <option value="and_or_search">AND-OR Search</option>
+                                            <option value="online_search">Online Search (LRTA*)</option>
+                                            <option value="backtracking">Backtracking (CSP)</option>
+                                            <option value="min_conflicts">Min-Conflicts</option>
+                                        </select>
+                                        
+                                        <div class="telemetry-row" id="tel-p2" style="display:none;">
+                                            <div class="tel-item"><span class="tel-label">HP / Score</span><span class="tel-val" id="tel-p2-hp">1 / 0</span></div>
+                                            <div class="tel-item"><span class="tel-label">Ammo / Blast</span><span class="tel-val" id="tel-p2-stats">1 / 1</span></div>
+                                            <div class="tel-item"><span class="tel-label">Position</span><span class="tel-val" id="tel-p2-pos">(13,1)</span></div>
+                                            <div class="tel-item"><span class="tel-label">State</span><span class="tel-val" id="tel-p2-state">Alive</span></div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Player 3 Config -->
+                                    <div class="config-block" id="block-p3">
+                                        <div class="config-block-title title-p3">Player 3 (AI)</div>
+                                        <select class="input-select" id="pg-algo-p3">
+                                            <option value="minimax">Minimax Algorithm</option>
+                                            <option value="expectimax" selected>Expectimax</option>
+                                            <option value="astar">A* Search</option>
+                                            <option value="bfs">BFS</option>
+                                            <option value="dfs">DFS</option>
+                                            <option value="greedy">Greedy Search</option>
+                                            <option value="hill_climbing">Hill Climbing</option>
+                                            <option value="simulated_annealing">Simulated Annealing</option>
+                                            <option value="and_or_search">AND-OR Search</option>
+                                            <option value="online_search">Online Search (LRTA*)</option>
+                                            <option value="backtracking">Backtracking (CSP)</option>
+                                            <option value="min_conflicts">Min-Conflicts</option>
+                                        </select>
+                                        
+                                        <div class="telemetry-row" id="tel-p3" style="display:none;">
+                                            <div class="tel-item"><span class="tel-label">HP / Score</span><span class="tel-val" id="tel-p3-hp">1 / 0</span></div>
+                                            <div class="tel-item"><span class="tel-label">Ammo / Blast</span><span class="tel-val" id="tel-p3-stats">1 / 1</span></div>
+                                            <div class="tel-item"><span class="tel-label">Position</span><span class="tel-val" id="tel-p3-pos">(1,11)</span></div>
+                                            <div class="tel-item"><span class="tel-label">State</span><span class="tel-val" id="tel-p3-state">Alive</span></div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Player 4 Config -->
+                                    <div class="config-block" id="block-p4">
+                                        <div class="config-block-title title-p4">Player 4 (AI)</div>
+                                        <select class="input-select" id="pg-algo-p4">
+                                            <option value="minimax">Minimax Algorithm</option>
+                                            <option value="expectimax">Expectimax</option>
+                                            <option value="astar" selected>A* Search</option>
+                                            <option value="bfs">BFS</option>
+                                            <option value="dfs">DFS</option>
+                                            <option value="greedy">Greedy Search</option>
+                                            <option value="hill_climbing">Hill Climbing</option>
+                                            <option value="simulated_annealing">Simulated Annealing</option>
+                                            <option value="and_or_search">AND-OR Search</option>
+                                            <option value="online_search">Online Search (LRTA*)</option>
+                                            <option value="backtracking">Backtracking (CSP)</option>
+                                            <option value="min_conflicts">Min-Conflicts</option>
+                                        </select>
+                                        
+                                        <div class="telemetry-row" id="tel-p4" style="display:none;">
+                                            <div class="tel-item"><span class="tel-label">HP / Score</span><span class="tel-val" id="tel-p4-hp">1 / 0</span></div>
+                                            <div class="tel-item"><span class="tel-label">Ammo / Blast</span><span class="tel-val" id="tel-p4-stats">1 / 1</span></div>
+                                            <div class="tel-item"><span class="tel-label">Position</span><span class="tel-val" id="tel-p4-pos">(13,11)</span></div>
+                                            <div class="tel-item"><span class="tel-label">State</span><span class="tel-val" id="tel-p4-state">Alive</span></div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-
-                        <p class="card-subtext" style="margin-top: 12px;">
-                            Khi FOW bật, phần game sẽ chỉ hiển thị vùng quan sát của agent được chọn. Khi tắt, toàn bộ bản đồ sẽ hiển thị để hỗ trợ trình bày, demo và so sánh thuật toán.
-                        </p>
-                    </article>
-
-                    <aside class="control-column">
-                        <article class="panel card">
-                            <h2>Match Controls</h2>
-                            <div class="action-buttons" style="margin-bottom: 12px;">
-                                <button id="btn-start" class="btn btn-primary">Start</button>
-                                <button id="btn-pause" class="btn btn-secondary">Pause</button>
-                                <button id="btn-resume" class="btn btn-accent">Resume</button>
-                                <button id="btn-reset" class="btn btn-warn">Reset</button>
-                            </div>
-                            <div class="stack">
-                                <div class="metric-row">
-                                    <span class="metric-label">Speed</span>
-                                    <span id="speed-value" class="metric-value">300 ms</span>
-                                </div>
-                                <input id="speed-slider" class="slider" type="range" min="120" max="1000" step="20" value="300">
-                                <div class="metric-row">
-                                    <span class="metric-label">Step</span>
-                                    <span id="step-count" class="metric-value">0</span>
-                                </div>
-                                <div class="metric-row">
-                                    <span class="metric-label">Last action</span>
-                                    <span id="last-action" class="metric-value">-</span>
-                                </div>
-                            </div>
-                        </article>
-
-                        <article class="panel card">
-                            <h2>Agent Setup</h2>
-                            <p class="card-subtext">Chọn thuật toán cho từng player trước khi bắt đầu. Player 1 có thể để manual hoặc chuyển sang agent-controlled.</p>
-                            <div class="stack">
-                                <div class="metric-row">
-                                    <span class="metric-label">Map preset</span>
-                                    <select id="map-select" class="select" style="min-width: 180px;"></select>
-                                </div>
-                                <div class="metric-row">
-                                    <span class="metric-label">Seed</span>
-                                    <input id="seed-input" class="input" type="number" value="42" style="width: 120px;">
-                                </div>
-                                <div class="metric-row">
-                                    <span class="metric-label">Agent count</span>
-                                    <select id="agent-count" class="select" style="min-width: 120px;">
-                                        <option value="2">2</option>
-                                        <option value="3">3</option>
-                                        <option value="4" selected>4</option>
-                                    </select>
-                                </div>
-                                <div class="metric-row"><span class="metric-label">Player 1</span><select id="agent-select-p1" class="select"></select></div>
-                                <div class="metric-row"><span class="metric-label">Player 2</span><select id="agent-select-p2" class="select"></select></div>
-                                <div class="metric-row"><span class="metric-label">Player 3</span><select id="agent-select-p3" class="select"></select></div>
-                                <div class="metric-row"><span class="metric-label">Player 4</span><select id="agent-select-p4" class="select"></select></div>
-                            </div>
-                        </article>
-
-                        <article class="panel card">
-                            <h2>Live Status</h2>
-                            <div id="agent-status-list" class="status-list"></div>
-                        </article>
-                    </aside>
-                </div>
-            </section>
-
-            <section class="section" id="lab-section">
-                <div class="section-header">
-                    <div>
-                        <h1 class="section-title">Algorithm Visualization</h1>
-                        <p class="section-desc">Whiteboard tương tác để quan sát BFS, DFS, A*, Hill Climbing, Simulated Annealing, Minimax, Expectimax và các thuật toán khác dưới God View hoặc Agent View.</p>
                     </div>
                 </div>
 
-                <div class="lab-layout">
-                    <article class="panel lab-main">
-                        <div class="lab-toolbar">
-                            <div class="toolbar-group">
-                                <select id="lab-algorithm-select" class="select"></select>
-                                <select id="lab-scenario-select" class="select">
-                                    <option value="bomb_escape">Bomb Escape</option>
-                                    <option value="item_hunt">Item Hunt</option>
-                                    <option value="enemy_pressure">Enemy Pressure</option>
-                                    <option value="open_field">Open Field</option>
+                <!-- MODULE 2: TACTICAL SCENARIO LABORATORY -->
+                <div class="dashboard-section" id="lab-tab">
+                    <div class="sandbox-layout">
+                        
+                        <!-- Left Panel: Scenarios -->
+                        <div class="glass-card">
+                            <div class="card-header">
+                                <h2>Tactical Scenarios</h2>
+                            </div>
+                            <ul class="scenario-list">
+                                <li class="scenario-item active" data-scenario="hazard_escape">
+                                    <div class="scenario-name">Hazard Escape</div>
+                                    <div class="scenario-desc">Agent is trapped in blast zones, showing minimax evasion vs shortest A* escape.</div>
+                                </li>
+                                <li class="scenario-item" data-scenario="bomb_placement">
+                                    <div class="scenario-name">Bomb Placement</div>
+                                    <div class="scenario-desc">Brick and enemy proximity opportunity evaluating placing risks.</div>
+                                </li>
+                                <li class="scenario-item" data-scenario="long_navigation">
+                                    <div class="scenario-name">Long Navigation</div>
+                                    <div class="scenario-desc">Open environment path overlays for search models.</div>
+                                </li>
+                                <li class="scenario-item" data-scenario="corner_duel">
+                                    <div class="scenario-name">Cornered Duel</div>
+                                    <div class="scenario-desc">Close duel corridors evaluating adversarial expectation scores.</div>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <!-- Center Panel: Mini map and Playback -->
+                        <div class="glass-card center-board-panel" style="min-height:500px;">
+                            <div class="board-meta" style="max-width:440px;">
+                                <div class="meta-item">
+                                    <span class="meta-label">Tick:</span>
+                                    <span id="lab-tick">0</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">Focus Agent:</span>
+                                    <span style="color:#06b6d4; font-weight:700;">Player 1</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Small Board container -->
+                            <div class="board-container" style="padding: 8px;">
+                                <div class="game-board" id="lab-small-board"></div>
+                            </div>
+
+                            <div class="replay-controls" style="max-width:440px; margin-top:20px;">
+                                <button class="btn" id="lab-play-btn" style="padding: 6px 12px;">Play</button>
+                                <button class="btn" id="lab-prev-btn" style="padding: 6px 12px;">Prev Tick</button>
+                                <button class="btn" id="lab-next-btn" style="padding: 6px 12px;">Next Tick</button>
+                                <button class="btn" id="lab-replay-btn" style="padding: 6px 12px;">Reset</button>
+                            </div>
+                            
+                            <div style="margin-top: 14px; display:flex; align-items:center; gap:10px;">
+                                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.85rem;">
+                                    <input type="checkbox" id="lab-overlay-chk" checked style="accent-color: var(--primary);">
+                                    <span>Show Search Path Overlay</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Right Panel: AI Decision log -->
+                        <div class="glass-card decision-log-container">
+                            <div class="card-header">
+                                <h2>AI Reasoning Log</h2>
+                            </div>
+                            
+                            <div class="form-group" style="margin-bottom:6px;">
+                                <label for="lab-algorithm">Select AI Model</label>
+                                <select class="input-select" id="lab-algorithm">
+                                    <option value="astar" selected>A* Search</option>
+                                    <option value="bfs">BFS</option>
+                                    <option value="dfs">DFS</option>
+                                    <option value="greedy">Greedy Search</option>
+                                    <option value="hill_climbing">Hill Climbing</option>
+                                    <option value="simulated_annealing">Simulated Annealing</option>
+                                    <option value="minimax">Minimax Algorithm</option>
+                                    <option value="expectimax">Expectimax</option>
+                                    <option value="and_or_search">AND-OR Search</option>
+                                    <option value="online_search">Online Search (LRTA*)</option>
+                                    <option value="backtracking">Backtracking (CSP)</option>
+                                    <option value="min_conflicts">Min-Conflicts</option>
                                 </select>
-                                <select id="lab-view-select" class="select">
-                                    <option value="god">God View</option>
-                                    <option value="agent">Agent View</option>
-                                </select>
-                                <select id="lab-focus-select" class="select"></select>
                             </div>
-                            <div class="toolbar-group">
-                                <button id="lab-refresh-btn" class="btn btn-secondary">Refresh trace</button>
-                            </div>
+                            
+                            <div class="log-box" id="lab-decision-log"></div>
                         </div>
-
-                        <div id="lab-meta-cards" class="lab-meta-grid"></div>
-                        <div class="whiteboard-stage" id="lab-tree-stage">
-                            <div class="tree-hint">Wheel to zoom, drag to pan</div>
-                            <svg id="lab-tree-edges" class="tree-edges"></svg>
-                            <div id="lab-tree-canvas" class="tree-canvas"></div>
-                        </div>
-                        <div class="tree-details" id="lab-node-details">
-                            <h4>Node details</h4>
-                            <p>Chọn một node để xem parent, children, heuristic, utility và lý do sinh node. Khu này được thiết kế để thay dữ liệu thực nghiệm thật khi dataset sẵn sàng.</p>
-                        </div>
-                    </article>
-
-                    <aside class="side-stack">
-                        <article class="panel lab-side">
-                            <h3>Frontier / Open List</h3>
-                            <div id="lab-frontier" class="list-box"></div>
-                        </article>
-                        <article class="panel lab-side">
-                            <h3>Closed / Pruned</h3>
-                            <div id="lab-closed" class="list-box"></div>
-                        </article>
-                        <article class="panel lab-side">
-                            <h3>Reasoning</h3>
-                            <div id="lab-insight" class="list-box"></div>
-                        </article>
-                    </aside>
-                </div>
-
-                <article class="panel log-card" style="margin-top: 18px;">
-                    <div class="log-toolbar">
-                        <div class="toolbar-group">
-                            <input id="lab-log-search" class="input" type="search" placeholder="Search logs..." style="min-width: 220px;">
-                            <select id="lab-agent-filter" class="select">
-                                <option value="all">All agents</option>
-                            </select>
-                        </div>
-                        <div class="toolbar-group">
-                            <button id="lab-clear-log" class="btn btn-secondary">Clear log</button>
-                        </div>
-                    </div>
-                    <div id="lab-event-log" class="log-list"></div>
-                </article>
-            </section>
-
-            <section class="section" id="experiment-section">
-                <div class="section-header">
-                    <div>
-                        <h1 class="section-title">Experiments</h1>
-                        <p class="section-desc">Khu này chỉ là khung kiến trúc cho dataset và dashboard sau này. Khi dữ liệu thực nghiệm sẵn sàng, ta chỉ cần nối biểu đồ và bảng so sánh vào đúng chỗ.</p>
                     </div>
                 </div>
 
-                <div class="experiment-grid">
-                    <article class="panel experiment-card chart-placeholder">
-                        <h3>Dataset Overview</h3>
-                        <p>Không gian cho summary card, số trận, phân bố map, seed, và số agent.</p>
-                        <div class="chart-ghost"></div>
-                    </article>
-                    <article class="panel experiment-card chart-placeholder">
-                        <h3>Algorithm Comparison</h3>
-                        <p>Biểu đồ so sánh win rate, latency, survival time, heuristic efficiency và FOW impact.</p>
-                        <div class="chart-ghost"></div>
-                    </article>
-                    <article class="panel experiment-card chart-placeholder">
-                        <h3>Scenario Breakdown</h3>
-                        <p>Khung để phân tích theo map preset, seed, fog mode, team size và từng chiến thuật.</p>
-                        <div class="chart-ghost"></div>
-                    </article>
+                <!-- MODULE 3: ANALYTICS DASHBOARD -->
+                <div class="dashboard-section" id="analytics-tab">
+                    
+                    <div class="tab-bar" style="margin-bottom: 20px;">
+                        <button class="tab-btn active" id="btn-analytics-csv">Tournament Logs (CSV Folder)</button>
+                        <button class="tab-btn" id="btn-analytics-db">Live Play Benchmarks (SQLite)</button>
+                    </div>
+                    
+                    <!-- Overview Cards row -->
+                    <div class="analytics-summary-cards">
+                        <div class="analytics-card">
+                            <div class="analytics-card-label">Total Matches</div>
+                            <div class="analytics-card-value" id="card-total-matches">0</div>
+                            <div class="analytics-card-footer">Completed runs in DB</div>
+                        </div>
+                        <div class="analytics-card">
+                            <div class="analytics-card-label">Average Latency</div>
+                            <div class="analytics-card-value" id="card-avg-latency">0 ms</div>
+                            <div class="analytics-card-footer">AI planning speed</div>
+                        </div>
+                        <div class="analytics-card">
+                            <div class="analytics-card-label">Average Score</div>
+                            <div class="analytics-card-value" id="card-avg-score">0</div>
+                            <div class="analytics-card-footer">Survival and kill value</div>
+                        </div>
+                        <div class="analytics-card">
+                            <div class="analytics-card-label">CPU / Memory</div>
+                            <div class="analytics-card-value" id="card-resources">0% / 0MB</div>
+                            <div class="analytics-card-footer">Average benchmark usage</div>
+                        </div>
+                    </div>
+
+                    <!-- Performance charts -->
+                    <div class="charts-container">
+                        <div class="glass-card chart-card">
+                            <div class="card-header">
+                                <h2>Algorithm Win Rate</h2>
+                            </div>
+                            <div class="chart-wrapper">
+                                <canvas id="chart-winrate"></canvas>
+                            </div>
+                        </div>
+                        
+                        <div class="glass-card chart-card">
+                            <div class="card-header">
+                                <h2>AI Nodes Expanded (Heuristic Efficiency)</h2>
+                            </div>
+                            <div class="chart-wrapper">
+                                <canvas id="chart-nodes"></canvas>
+                            </div>
+                        </div>
+                        
+                        <div class="glass-card chart-card">
+                            <div class="card-header">
+                                <h2>Planning Horizon vs Latency</h2>
+                            </div>
+                            <div class="chart-wrapper">
+                                <canvas id="chart-horizon"></canvas>
+                            </div>
+                        </div>
+                        
+                        <div class="glass-card chart-card">
+                            <div class="card-header">
+                                <h2>Tactical Success Rate Comparison</h2>
+                            </div>
+                            <div class="chart-wrapper">
+                                <canvas id="chart-tactical"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Replay Analytics section -->
+                    <div class="glass-card replay-section">
+                        <div class="card-header">
+                            <h2>Match Replay Analytics</h2>
+                            <div class="header-actions">
+                                <button class="btn" id="export-csv">Export CSV</button>
+                                <button class="btn" id="export-json">Export JSON</button>
+                                <button class="btn" id="export-png">Export PNGs</button>
+                            </div>
+                        </div>
+                        
+                        <div class="replay-grid">
+                            <!-- Match history list -->
+                            <div style="max-height: 480px; overflow-y: auto; display:flex; flex-direction:column; gap:8px;" id="replay-matches-list">
+                                <!-- Loaded matches are populated here -->
+                            </div>
+                            
+                            <!-- Replay simulator board -->
+                            <div style="display:flex; flex-direction:column; align-items:center; background-color: rgba(0,0,0,0.15); padding: 20px; border-radius:12px; border:1px solid rgba(255,255,255,0.03);">
+                                <div class="board-meta" style="max-width:520px;">
+                                    <div class="meta-item"><span class="meta-label">Replay Match:</span><span id="rep-match-display">-</span></div>
+                                    <div class="meta-item"><span class="meta-label">Tick:</span><span id="rep-tick-display">0/0</span></div>
+                                </div>
+                                
+                                <div style="display:flex; gap:20px; align-items:start; width:100%; justify-content:center;">
+                                    <div class="board-container" style="margin:0;">
+                                        <div class="game-board" id="replay-board"></div>
+                                    </div>
+                                    
+                                    <!-- Movement heatmap or event timeline -->
+                                    <div style="width: 240px; display:flex; flex-direction:column; gap:12px;">
+                                        <div class="config-block" style="padding: 10px;">
+                                            <div class="config-block-title" style="font-size:0.8rem; margin-bottom:4px;">Overlay view</div>
+                                            <label style="display:flex; align-items:center; gap:6px; font-size:0.75rem; cursor:pointer;">
+                                                <input type="radio" name="overlay-type" value="normal" checked style="accent-color: var(--primary);">
+                                                <span>Normal rendering</span>
+                                            </label>
+                                            <label style="display:flex; align-items:center; gap:6px; font-size:0.75rem; cursor:pointer;">
+                                                <input type="radio" name="overlay-type" value="heatmap" style="accent-color: var(--primary);">
+                                                <span>Position density heatmap</span>
+                                            </label>
+                                        </div>
+                                        
+                                        <div class="config-block" style="padding: 10px; max-height:220px; overflow-y:auto;">
+                                            <div class="config-block-title" style="font-size:0.8rem; margin-bottom:4px;">Event Timeline</div>
+                                            <div style="font-size:0.75rem; line-height:1.45; color:var(--text-secondary);" id="rep-events">
+                                                Select a match to load history events.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="replay-controls" style="max-width:520px; margin-top:20px; width:100%;">
+                                    <button class="btn" id="rep-play-btn">Play</button>
+                                    <button class="btn" id="rep-prev-btn">Prev</button>
+                                    <button class="btn" id="rep-next-btn">Next</button>
+                                    <input type="range" class="range-slider slider-scrub" id="rep-scrub" value="0" min="0" max="0">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </section>
-        </main>
+
+            </main>
+        </div>
     </div>
-
+    
     <script src="dashboard.js"></script>
 </body>
 </html>

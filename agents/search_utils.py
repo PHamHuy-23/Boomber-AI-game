@@ -575,8 +575,24 @@ def min_dist_to_set(pos: Tuple[int, int], target_set: set) -> int:
         return 0
     return min(abs(pos[0] - tx) + abs(pos[1] - ty) for tx, ty in target_set)
 
+CURRENT_SEARCH_TRACE = {
+    "nodes_expanded": 0,
+    "frontier_size": 0,
+    "open_list": [],
+    "closed_list": [],
+    "reasoning": []
+}
+
 def hierarchical_action(search_fn, info: dict) -> str:
     """Logic phân tầng theo thứ tự ưu tiên."""
+    global CURRENT_SEARCH_TRACE
+    CURRENT_SEARCH_TRACE = {
+        "nodes_expanded": 0,
+        "frontier_size": 0,
+        "open_list": [],
+        "closed_list": [],
+        "reasoning": []
+    }
     player_pos = info["player_pos"]
     walls      = info["walls"]
     bricks     = info["bricks"]
